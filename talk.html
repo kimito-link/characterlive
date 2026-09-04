@@ -230,6 +230,7 @@
         startMicLevel, micPermission, watchMicPermission, describeMicPermission
       } from './src/lib/charaMicLevel.js';
       import { REPLY_AFTER_SILENCE_MS } from './src/lib/charaIdle.js';
+      import { isHeartTalk, relayMembers, relayDirective, checkRelayLine } from './src/lib/charaRelay.js';
 
       const $ = (id) => document.getElementById(id);
       const logEl = $('log');
@@ -370,6 +371,69 @@
         }
       })();
 
+      /**
+       * ★3人が1文ずつリレーする（同時発話は禁止のまま）。
+       *   ★前の子の**再生が終わってから**次の子が吹き出す。
+       *     文字だけ先に3つ出すと、誰が喋っているのか分からなくなる。
+       */
+      async function runRelay(t) {
+        const members = relayMembers(3);
+        for (let i = 0; i < members.length; i += 1) {
+          const id = members[i];
+          const persona = PERSONAS[id];
+
+          setState('thinking', `${persona.displayName}が考えています…`);
+          live.beginThinking({ charaId: id });
+          const res = await think({
+            charaId: id,
+            text: t,
+            mode: 'cheer',
+            history,
+            // ★リレー中の役割を渡す（受け止める/ずらす/閉じる）
+            relay: relayDirective(id, i)
+          });
+          live.endThinking();
+
+          if (!res.ok) continue;
+
+          // ★禁止に触れていたら、その子は黙る（無理に喋らせない）
+          const judge = checkRelayLine(res.text);
+          if (!judge.ok) continue;
+
+          lastSpeaker = id;
+          history.push({ who: persona.displayName, text: res.text });
+          log(persona.displayName, res.text + (res.fallback ? '（AI未準備・決め打ち）' : ''), res.ms);
+
+          if ($('voice').checked && voiceOk) {
+            setState('speaking', `${persona.displayName}が話しています`);
+            const wav = await synthesize(res.text, { ...persona.voice, styleId: voices[id] });
+            if (wav) {
+              playing?.stop();
+              live.onStreamerAddressed({
+                prompt: t, answer: res.text, durationMs: 60000, charaId: id
+              });
+              playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
+              // ★ここで待つ。次の子は前の子が鳴り終わってから。
+              await playing.done;
+              live.onCommentSpokenEnd();
+              live.closeChara(id);   // ★次の子に移る前に閉じる（並べない）
+            } else {
+              live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000, charaId: id });
+              await new Promise((r) => setTimeout(r, 2200));
+              live.closeChara(id);
+            }
+          } else {
+            /* ★吹き出しは2.6秒で自然に消える長さにする。
+               ★durationMs を長くすると3人ぶんが画面に並んでしまい、
+                 「1人ずつリレーしている」ことが伝わらない（実測で確認）。 */
+            live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 2400, charaId: id });
+            await new Promise((r) => setTimeout(r, 2600));
+            live.closeChara(id);   // ★次の子に移る前に閉じる
+          }
+        }
+        setState(null);
+      }
+
       async function speak(text) {
         const t = String(text || '').trim();
         if (!t) return;
@@ -377,6 +441,16 @@
         $('say').value = '';
         log('あなた', t);
         history.push({ who: '配信者', text: t });
+
+        /* ★気持ちの話なら3人でリレーする(2026-09-05・デモ用)
+           1人1文 / りんく→こん太→たぬ姉 / 前の子の再生が終わってから次。
+           ★何にでも3人が出ると「全員が毎ターン喋って個性が薄まる」失敗に戻る。
+             打ち明け・気持ち・変わりたい、が2つ以上そろったときだけ。 */
+        if ($('mode').value === 'cheer' && isHeartTalk(t)) {
+          await runRelay(t);
+          $('send').disabled = false;
+          return;
+        }
 
         const who = pickResponder(t, lastSpeaker);
         const persona = PERSONAS[who];

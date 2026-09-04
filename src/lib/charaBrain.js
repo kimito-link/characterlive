@@ -16,6 +16,7 @@
 
 import { PERSONAS, PERSONA_IDS, buildSystemPrompt, DEFAULT_MODE } from './charaPersona.v1.js';
 import { detectAddressedChara } from './charaLiveState.js';
+import { readMood, moodDirective } from './charaMood.js';
 
 /** @typedef {'rinku'|'konta'|'tanunee'} CharaId */
 
@@ -62,7 +63,7 @@ export function pickResponder(text, lastSpeaker = null) {
  * ★短さを強制する（プロンプト側でも指示しているが、モデルが長く返すことがあるので後段でも切る）。
  *   声で読むので長い返事は体験を壊す。Grokのプロンプトも全ペルソナで "keep your responses brief"。
  *
- * @param {{ charaId:CharaId, text:string, mode?:string, history?:Array<{who:string,text:string}> }} input
+ * @param {{ charaId:CharaId, text:string, mode?:string, history?:Array<{who:string,text:string}>, relay?:string }} input
  * @returns {Promise<{ok:boolean, text?:string, ms?:number, reason?:string}>}
  */
 export async function think(input) {
@@ -80,7 +81,19 @@ export async function think(input) {
     return { ok: true, text: fallbackLine(charaId, input.text), ms: 0, fallback: true, reason: probe.reason };
   }
 
-  const system = buildSystemPrompt(charaId, { mode: input.mode || DEFAULT_MODE });
+  /* ★その場の空気を判定して、短い一言として渡す
+     ★AIに「空気を読め」と書いても読まない。こちらで判定して指示に変える。
+     ★相手の状態を説明しない。説明するとモデルがそのまま言葉にする
+       （「落ち込んでるんだね」）。どう振る舞うかだけを書く。 */
+  const { mood } = readMood(input.history || [], input.text);
+  const situation = moodDirective(mood, !!persona.isSafetyNet);
+
+  /* ★リレー中は「その順番での役割」も渡す(2026-09-05)
+     受け止める / ずらす / 閉じる を明示しないと、3人が同じことを言う。 */
+  const system = buildSystemPrompt(charaId, {
+    mode: input.mode || DEFAULT_MODE,
+    situation: [situation, input.relay].filter(Boolean).join(' ') || undefined
+  });
 
   // 直近のやりとりだけ渡す（内蔵AIは小型なので長い履歴は毒）
   // ★履歴にも他の子の名前を出さない（プロンプト本体と同じ理由・Grokの指摘）
@@ -114,7 +127,8 @@ ${ask}`;
   try {
     session = await LM.create({ initialPrompts: [{ role: 'system', content: system }] });
     const raw = await session.prompt(user);
-    const text = enforcePersona(tidy(raw), charaId);
+    // ★リレー中は1人1文に固定する（指示）。3人ぶん続くので長いと聞き疲れる。
+    const text = enforcePersona(tidy(raw, input.relay ? 1 : MAX_SENTENCES), charaId);
     return { ok: true, text, ms: Math.round(performance.now() - t0) };
   } catch (e) {
     // ★ここでも黙らない（上と同じ理由）
@@ -178,7 +192,11 @@ export function enforcePersona(text, charaId) {
  * @param {unknown} raw
  * @returns {string}
  */
-export function tidy(raw) {
+/**
+ * @param {unknown} raw
+ * @param {number} [maxSentences] リレー中は1に絞る
+ */
+export function tidy(raw, maxSentences = MAX_SENTENCES) {
   let t = String(raw ?? '').trim();
   // よくある前置きを落とす
   t = t.replace(/^(はい[、。]?|わかりました[、。]?|了解[、。]?)/, '').trim();
@@ -186,7 +204,7 @@ export function tidy(raw) {
   t = t.replace(/^[「『]|[」』]$/g, '').replace(/^[-*・]\s*/gm, '');
   t = t.replace(/\s*\n+\s*/g, ' ').trim();
   // ★文の数で切る（ユーザー要望「返答は1〜3文。必要なら追加で1文」）
-  t = limitSentences(t, MAX_SENTENCES);
+  t = limitSentences(t, maxSentences);
 
   // ★全体の字数でも切る（2026-09-04・本物のAIで実害を確認）
   //   実際に返ってきたもの:

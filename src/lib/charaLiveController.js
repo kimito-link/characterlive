@@ -89,6 +89,7 @@ export const REACTION_MIN_GAP_MS = 2600;
  *   setVisible: (next: boolean) => void,
  *   onCommentSpoken: (input: { commentKey: string, text?: string }) => void,
  *   onCommentSpokenEnd: () => void,
+ *   closeChara: (charaId: string) => void,
  *   onStreamerAddressed: (input: { prompt: string, answer?: string, durationMs?: number, charaId?: string|null }) => string,
  *   beginThinking: (input?: { prompt?: string, charaId?: string|null }) => string,
  *   endThinking: (input?: { charaId?: string|null }) => string[],
@@ -403,6 +404,23 @@ export function startCharaLive(deps) {
         needsImmediateDraw = true;
       }
       speakingChara = null;
+    },
+
+    /**
+     * ★指定した子を今すぐ黙らせる（リレー用・2026-09-05）
+     *
+     *   onCommentSpokenEnd は相槌(react)しか閉じないので、
+     *   返事(answer)を続けて出すリレーでは吹き出しが積み上がる
+     *   （実測: 3人ぶんが同時に並んだ）。
+     *   ★「1人ずつ喋っている」ことを見せるには、次に進む前に前の子を閉じる。
+     *
+     * @param {string} charaId
+     */
+    closeChara(charaId) {
+      const slot = state.slots[charaId];
+      if (!slot || slot.mode === 'idle') return;
+      slot.untilMs = now();
+      needsImmediateDraw = true;
     },
 
     /**
