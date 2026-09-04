@@ -35,3 +35,23 @@ GitHub（kimito-link/characterlive）と連携済みなので、push でも反�
 
 ローカルで見るときは `npm run demo` → http://localhost:5173/
 （★ルートはLP。デモは /demo.html）
+
+## ドメインを繋ぐ（characterlive.link）
+
+★**リポ直下から実行する**。相対パスを間違えると `MODULE_NOT_FOUND` になる（実際に踏んだ）。
+
+```bash
+npm run domain          # A/CNAME を設定
+npm run domain:check    # 今の状態を見るだけ
+```
+
+実体は `../ai-hub/bin/domain-connect.mjs`（横断ツール。正本は ai-hub 側）。
+★npm script にしてあるので、パスを手で打たなくてよい。
+
+### 1回だけ必要なもの
+環境変数 `CLOUDFLARE_DNS_TOKEN`。
+Cloudflare → マイプロフィール → APIトークン → テンプレート「**ゾーンDNSを編集する**」
+→ ゾーンリソース「すべてのゾーン」。
+
+★既存の `CLOUDFLARE_API_TOKEN` では**動かない**（ゾーン一覧は見えるが DNS 操作が
+`10000: Authentication error` で弾かれる。実測）。

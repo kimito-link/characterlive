@@ -8,7 +8,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "demo": "node scripts/serve-demo.mjs"
+    "demo": "node scripts/serve-demo.mjs",
+    "domain": "node ../ai-hub/bin/domain-connect.mjs characterlive.link",
+    "domain:check": "node ../ai-hub/bin/domain-connect.mjs characterlive.link --check"
   },
   "devDependencies": {
     "happy-dom": "^15.11.6",
