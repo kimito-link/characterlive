@@ -106,8 +106,14 @@ def main():
     img.paste(logo, ((cw - logo_w) // 2, int(30 * S)), logo)
 
     # ---- 見出し（2行・中央）----
-    f_main = font(int(62 * S))
-    lines = ["視聴者0人でも、", "ひとりじゃない。"]
+    f_main = font(int(58 * S))
+    # ★コピー（2026-09-04 会議で決定）
+    #   「孤独」を言葉にしない。調査で、孤独を前面に出した製品だけが停止していた
+    #   （AI視聴者ジェネレーター）。配信者は「人が来ないのは仕組みが無いだけで
+    #   あなたのせいではない」と言われたい。「寂しい」と書くと"あなたの問題"になる。
+    #   さらに孤独訴求は【成長すると対象外になる】（200人に育つと当てはまらない）。
+    #   → 娯楽（盛り上げ）を主役にする。0人でも大勢でも成立する。
+    lines = ["ゆっくり3人組が、", "配信を盛り上げます。"]
     y = int(196 * S)
     for i, line in enumerate(lines):
         color = ORANGE if i == 1 else NAVY_DEEP
@@ -116,8 +122,11 @@ def main():
         y += int(78 * S)
 
     # ---- 説明（1行・中央）----
-    f_sub = font(int(27 * S))
-    sub = "誰も来ない配信で、3人が勝手に喋り続けます。"
+    f_sub = font(int(26 * S))
+    # ★「置き換えではない」税を必ず払う。市場首位の ai_licia もヒーローコピーで
+    #   "She's not here to replace you" と明言している。嫌われるのは「相方」では
+    #   なく【置き換え】。AIが配信者の出番を奪うか増やすかが分かれ目だった。
+    sub = "あなたの代わりではなく、あなたと一緒に。"
     bbox = d.textbbox((0, 0), sub, font=f_sub)
     d.text(((cw - (bbox[2] - bbox[0])) // 2, y + int(8 * S)), sub, font=f_sub, fill=MUTED)
 
