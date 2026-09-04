@@ -102,6 +102,46 @@
       @keyframes micPulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
       .mic:disabled { opacity: .4; }
 
+      /* ★音量の波形。押している間だけ出す。
+         これが動く = マイクが本当に音を拾えている、の証拠になる。 */
+      /* ★<span> の中なので inline-flex にする。
+         flex にすると <button> 内のインライン整形文脈で子の高さが潰れ、
+         棒が 3px から動かなかった（!important でも効かず、実測で原因を特定）。 */
+      .mic__bars { display: inline-flex; align-items: center; gap: 2px; height: 20px; margin-left: 2px; vertical-align: middle; }
+      .mic__bars[hidden] { display: none !important; }
+      .mic__bars i {
+        /* ★高さそのものを変える。
+           当初は transform:scaleY で伸ばしたが、基準の高さが3pxしかなく
+           見た目がほとんど動かなかった（実測で判明）。
+           棒5本だけなのでレイアウト負荷は問題にならない。 */
+        /* ★動かすのは transform:scaleY。height は使わない。
+           ★実測で確定(2026-09-04): この構造では height を変えても computed が
+             3px のまま動かない（!important でも、CSS変数経由でも駄目）。
+             transition:height が変更を吸収していた。
+             一方 transform は確実に効く（scaleY(6) で実測18px）。
+           ★基準の高さは 16px にする。最初 3px で作ったせいで
+             scaleY をかけても見た目がほとんど動かず「効いていない」と誤診した。 */
+        display: block; width: 3px; height: 16px; border-radius: 2px;
+        background: currentColor; opacity: .9;
+        flex: none;
+        transform: scaleY(0.19);        /* 無音時 = 約3px */
+        transform-origin: center;
+        transition: transform .06s linear;
+      }
+      /* ★押していて音が来ない時の注意書き */
+      .state__warn { color: var(--ng); font-weight: 600; }
+
+      /* ★マイクの許可状態（常時表示） */
+      .micst {
+        max-width: 720px; margin: 6px auto 0; font-size: 12px; color: var(--muted);
+        display: flex; align-items: center; gap: 6px;
+      }
+      .micst__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+      .micst.is-ok .micst__dot { background: var(--ok); }
+      .micst.is-live .micst__dot { background: var(--ng); animation: micPulse 1.1s ease-in-out infinite; }
+      .micst.is-ng .micst__dot { background: var(--ng); }
+      .micst.is-ng { color: var(--ng); }
+
       /* ★状態の3段階: 聞いてる / 考えてる / 喋ってる */
       .state {
         max-width: 720px; margin: 8px auto 0; display: flex; align-items: center; gap: 7px;
@@ -131,12 +171,21 @@
              スペースキーでも押せる。配信中にボタンを握り続けるのは無理なので。 -->
         <button id="mic" class="mic" title="押している間だけ聞きます（スペースキーでも可）">
           <span class="mic__icon">🎤</span>
+          <!-- ★音を拾えているかを見せる波形（ユーザー指摘:「スピーカーゲージがないので
+               ほんとうにつかえてるかわかりずらい」）。押している間だけ出る。 -->
+          <span class="mic__bars" id="micBars" hidden aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </span>
         </button>
         <input id="say" type="text" placeholder="押して話す、または入力（例: たぬ姉、今日うまくいかなかった）" autocomplete="off" />
         <button id="send">話す</button>
       </div>
       <!-- ★いまの状態を3段階で見せる（Grok:「点だけじゃ足りない」） -->
       <div class="state" id="state" hidden><span class="state__dot"></span><span id="stateText"></span></div>
+      <!-- ★マイクの状態を押す前から見せる。
+           Chromeの「マイク / 現在使用中」はブラウザが出すものでページからは作れないが、
+           「いま使えるか」が一目で分かる安心感は自前で作れる。 -->
+      <div class="micst" id="micState"></div>
       <!-- ★声を選ぶ（Grokの「音声 Ara ＞」と同じ位置づけ・性格とは独立）
            ユーザー指摘:「みるとどの音声入力かえらべるのがない」 -->
       <div class="voices" id="voices" hidden>
@@ -173,6 +222,9 @@
         fetchVoiceChoices, loadVoices, saveVoices, resetVoices, sampleLine
       } from './src/lib/charaVoicePicker.js';
       import { canListen, createPushToTalk } from './src/lib/charaListen.js';
+      import {
+        startMicLevel, micPermission, watchMicPermission, describeMicPermission
+      } from './src/lib/charaMicLevel.js';
 
       const $ = (id) => document.getElementById(id);
       const logEl = $('log');
@@ -378,12 +430,29 @@
        *       握ってるわけにもいかないから、ショートカットキーでオンオフ」
        *   → 既定は押して話す。スペースキーでも押せる。
        * ------------------------------------------------------------------ */
-      function setState(s, text) {
+      function setState(s, text, allowHtml = false) {
         const el = $('state');
         if (!s) { el.hidden = true; return; }
         el.hidden = false;
         el.dataset.s = s;
-        $('stateText').textContent = text;
+        // ★既定は textContent（外から来た文字をそのまま HTML にしない）。
+        //   注意書きだけは自前の固定文なので HTML を許す。
+        if (allowHtml) $('stateText').innerHTML = text;
+        else $('stateText').textContent = text;
+      }
+
+      /* ★マイクの状態を常に見せる（押す前から分かるように）。
+         「使用中」は Chrome が出すものだが、こちらでも赤く点滅させて同じことを伝える。 */
+      function renderMicState(state, live = false) {
+        const el = $('micState');
+        const d = describeMicPermission(state);
+        el.className = 'micst ' + (live ? 'is-live' : (d.ok ? (state === 'granted' ? 'is-ok' : '') : 'is-ng'));
+        el.textContent = '';
+        const dot = document.createElement('span');
+        dot.className = 'micst__dot';
+        const txt = document.createElement('span');
+        txt.textContent = live ? 'マイク 使用中' : d.label + (d.hint ? ` — ${d.hint}` : '');
+        el.append(dot, txt);
       }
 
       const listenable = canListen();
@@ -394,7 +463,13 @@
       if (!listenable.ok) {
         $('mic').disabled = true;
         $('mic').title = listenable.reason || '音声入力が使えません';
+        $('micState').className = 'micst is-ng';
+        $('micState').textContent = listenable.reason || '音声入力が使えません';
       } else {
+        // 押す前から状態を出す。設定を変えたら自動で反映する。
+        micPermission().then((st) => renderMicState(st));
+        watchMicPermission((st) => renderMicState(st, ptt?.isHolding));
+
         ptt = createPushToTalk({
           onHeard: ({ final, text }) => {
             // ★途中経過も見せる（黙って処理すると壊れているように見える）
@@ -411,22 +486,61 @@
           }
         });
 
-        const micOn = () => {
+        /* ★音量計。押している間だけ動かす。
+           これが動く = マイクが本当に音を拾えている、という証拠になる。
+           ★認識APIとは別経路なので「波は動くのに文字にならない」なら
+             マイクは生きていて認識だけが失敗している、と切り分けられる。 */
+        const bars = [...$('micBars').querySelectorAll('i')];
+        let meter = null;
+        let sawSound = false;      // 押している間に一度でも音が入ったか
+        let silentFrames = 0;
+
+        const drawLevel = (lv) => {
+          if (lv > 0.12) { sawSound = true; silentFrames = 0; } else { silentFrames += 1; }
+          // 中央が高い山にする（棒が5本とも同じ高さだと機械的に見える）
+          const shape = [0.45, 0.75, 1, 0.75, 0.45];
+          bars.forEach((b, i) => {
+            // 3px(無音)〜19px(大声)。★実測して「動いて見える」幅にした。
+            // 0.19(無音・約3px) 〜 1.0(大声・16px)
+            b.style.transform = `scaleY(${(0.19 + lv * shape[i] * 0.81).toFixed(3)})`;
+          });
+          // ★押しているのに無音が続いたら伝える（黙って失敗させない）
+          if (!sawSound && silentFrames > 90) {
+            setState('listening', '聞いています… <span class="state__warn">（音が入っていません。マイクを確認してください）</span>', true);
+          }
+        };
+
+        const micOn = async () => {
           if (ptt.isHolding) return;
           heardFinal = '';
+          sawSound = false;
+          silentFrames = 0;
           $('say').value = '';
           $('mic').classList.add('is-on');
+          $('micBars').hidden = false;
+          renderMicState('granted', true); // ★使用中（赤く点滅）
           setState('listening', '聞いています…');
           ptt.begin();
+          // 音量計は認識とは独立に開く（片方が失敗しても、もう片方は動く）
+          meter = await startMicLevel({
+            onLevel: drawLevel,
+            onError: (reason) => log('（マイク音量）', reason)
+          });
         };
         const micOff = () => {
           if (!ptt.isHolding) return;
           $('mic').classList.remove('is-on');
+          $('micBars').hidden = true;
+          micPermission().then((st) => renderMicState(st));
+          bars.forEach((b) => { b.style.transform = 'scaleY(0.19)'; });
+          meter?.stop();
+          meter = null;
           ptt.end();
           // ★離したら送る。押して離す＝一往復、が体で分かる形にする。
           const said = $('say').value.trim();
           setState(null);
           if (said) speak(said);
+          else if (!sawSound) log('（マイク）', '音が入っていませんでした。マイクの設定を確認してください');
         };
 
         $('mic').addEventListener('pointerdown', (e) => { e.preventDefault(); micOn(); });
