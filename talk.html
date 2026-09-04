@@ -406,16 +406,18 @@
             live.onStreamerAddressed({
               prompt: t,
               answer: res.text,
-              durationMs: 60000 // 音が終わったら閉じるので長めに取る
+              durationMs: 60000, // 音が終わったら閉じるので長めに取る
+              // ★声を出す子と、吹き出しに出る名前を必ず一致させる
+              charaId: who
             });
             playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
             await playing.done;
             live.onCommentSpokenEnd();
           } else {
-            live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000 });
+            live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000, charaId: who });
           }
         } else {
-          live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000 });
+          live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000, charaId: who });
         }
         setState(null);
         $('send').disabled = false;
@@ -515,6 +517,7 @@
         let meter = null;
         let sawSound = false;      // 押している間に一度でも音が入ったか
         let silentFrames = 0;
+        let warnedSilent = false;   // 無音の警告は1回だけ
 
         const drawLevel = (lv) => {
           if (lv > 0.12) { sawSound = true; silentFrames = 0; } else { silentFrames += 1; }
@@ -526,7 +529,8 @@
             b.style.transform = `scaleY(${(0.19 + lv * shape[i] * 0.81).toFixed(3)})`;
           });
           // ★押しているのに無音が続いたら伝える（黙って失敗させない）
-          if (!sawSound && silentFrames > 90) {
+          if (!sawSound && !warnedSilent && silentFrames > 90) {
+            warnedSilent = true;   // ★1回だけ出す(毎フレーム書き換えると繰り返して見える)
             setState('listening', '聞いています… <span class="state__warn">（音が入っていません。マイクを確認してください）</span>', true);
           }
         };
@@ -562,7 +566,11 @@
           const said = $('say').value.trim();
           setState(null);
           if (said) speak(said);
-          else if (!sawSound) log('（マイク）', '音が入っていませんでした。マイクの設定を確認してください');
+          /* ★ここでは警告を出さない（2026-09-04・実害）
+             ユーザー報告:「音が入っていませんでした」が2回出て画面がうるさい。
+             ★原因は状態バーとログの**両方**が同じことを言っていたこと。
+               同じ原因のメッセージは1箇所だけにする。状態バー側を残す
+               （キャラの吹き出しと場所が競合しないため）。 */
         };
 
         /* ★1回押したら聞き続ける（トグル）。押しっぱなしにしない。

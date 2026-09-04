@@ -150,10 +150,15 @@ export function enforcePersona(text, charaId) {
     t = t.replace(new RegExp(`[、,]?\s*${n}[、,]\s*`), '');   // 文中の呼びかけ
   }
 
-  // ★他の子の語尾が混ざったら落とす（「のだ」は りんく 専用）
+  /* ★他の子の語尾が混ざったら直す（「のだ」は りんく 専用）
+     ★実害(2026-09-04): split/join で**文中からも消して**いたため
+       「気にしなくていいのだ！」→「気にしなくていい！」と日本語が壊れていた。
+     → 文末の語尾だけを落とす。文中は触らない。 */
   for (const ng of p.speech.forbidden) {
     if (ng.startsWith('〜')) continue;
-    t = t.split(ng).join('');
+    // 「〜のだ。」「〜のだ！」「〜のだ」の形だけを対象にする
+    const re = new RegExp(ng + '([。！？!?]|$)', 'g');
+    t = t.replace(re, '$1');
   }
 
   t = t.replace(/\s{2,}/g, ' ').trim();
@@ -173,14 +178,46 @@ export function tidy(raw) {
   // 記号・箇条書き・絵文字っぽいものを除去（声で読むため）
   t = t.replace(/^[「『]|[」』]$/g, '').replace(/^[-*・]\s*/gm, '');
   t = t.replace(/\s*\n+\s*/g, ' ').trim();
-  // ★文の数で切る（2026-09-04・ユーザー要望「返答は1〜3文。必要なら追加で1文」）
-  //   ★以前は文字数(60字)でしか見ておらず、短ければ4文でも5文でも通っていた。
-  //     「長すぎると機械っぽくなる」のは字数ではなく**文の数**の問題。
+  // ★文の数で切る（ユーザー要望「返答は1〜3文。必要なら追加で1文」）
   t = limitSentences(t, MAX_SENTENCES);
 
-  // 1文が異常に長い場合の保険（句点を打たずに喋り続けるモデルがある）
-  if (t.length > 90) t = t.slice(0, 88) + '…';
+  // ★全体の字数でも切る（2026-09-04・本物のAIで実害を確認）
+  //   実際に返ってきたもの:
+  //     「そんなこと気にしなくていいのだ！あなたなら絶対フォロワー増やすことが
+  //       できる、信じてるのだ！誰よりも面白い配信してくれるから、きっとすぐに
+  //       たくさんの人が集まるはずのだ」
+  //   ★3文だが82字。文数の条件は満たすのに長すぎ、吹き出しも途中で切れた。
+  //   ★字数だけ見ていた頃の反省で文数に切り替えたが、それも片手落ちだった。
+  //     声で読む以上、**文の数と全体の字数の両方**が要る。
+  t = limitChars(t, MAX_CHARS);
   return t;
+}
+
+/** 返事の字数の上限。★声で読んで自然に聞ける長さ。 */
+export const MAX_CHARS = 48;
+
+/**
+ * 字数で切る（純関数）。★文の途中では切らない。
+ *   途中で切ると「集まるはず…」のような尻切れになり、機械っぽさが増す。
+ *   上限を超えたら、超えない範囲の**最後の文まで**で止める。
+ *
+ * @param {string} text
+ * @param {number} max
+ * @returns {string}
+ */
+export function limitChars(text, max = MAX_CHARS) {
+  const t = String(text || '').trim();
+  if (t.length <= max) return t;
+
+  const parts = t.match(/[^。！？!?]+[。！？!?]?/g) || [t];
+  let out = '';
+  for (const part of parts) {
+    if ((out + part).length > max) break;
+    out += part;
+  }
+  // ★1文目からして長い場合だけ、やむを得ず途中で切る
+  if (!out) return t.slice(0, max - 1) + '…';
+  return out.trim();
 }
 
 /** ★返事の上限。3文まで（必要な1文の追加を含めて4文は超えない）。 */

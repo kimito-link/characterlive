@@ -563,7 +563,13 @@ export function triggerCharaAnswer(state, input) {
     ? Math.max(ANSWER_MIN_MS, Number(input.durationMs))
     : ANSWER_MIN_MS;
 
-  const addressed = detectAddressedChara(prompt);
+  /* ★誰が答えるかは、呼び出し側が決めたものを最優先する(2026-09-04)
+     実害:「吹き出しのキャラ名が、実際に再生中の音声の speaker ID と一致しない」
+     ★呼び出し側は pickResponder で子を決め、その子の声で合成している。
+       ここで選び直すと、表示と声が食い違う。
+     ★渡されなかった場合だけ、従来どおり prompt から選ぶ。 */
+  const forced = input?.charaId && state?.slots?.[input.charaId] ? input.charaId : null;
+  const addressed = forced || detectAddressedChara(prompt);
   const id = addressed || pickReactingChara(`answer:${prompt}`, state?.lastSpeaker ?? null);
   const slot = state?.slots?.[id];
   if (slot) {

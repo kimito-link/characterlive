@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readMood, moodDirective } from './charaMood.js';
-import { limitSentences, tidy, MAX_SENTENCES } from './charaBrain.js';
+import { limitSentences, limitChars, tidy, MAX_SENTENCES, MAX_CHARS } from './charaBrain.js';
 
 describe('★返事は文の数で切る（長いと機械っぽくなる）', () => {
   // ★以前は文字数(60字)でしか見ておらず、短ければ4文でも5文でも通っていた。
@@ -64,11 +64,61 @@ describe('★その場の空気を読む（AIに読ませず、こちらで判�
     expect(moodDirective('down', true)).toMatch(/受け止める/);
   });
 
-  it('★他の子は落ち込みを茶化さない', () => {
-    expect(moodDirective('down', false)).toMatch(/茶化さず/);
+  it('★他の子も落ち込みを茶化さない', () => {
+    expect(moodDirective('down', false)).toMatch(/茶化さない/);
+  });
+
+  /* ★実害から追加(2026-09-04・本物のAIで確認)
+     「フォロワー増えない」に対し たぬ姉 が
+     「絶対フォロワー増やすことができる、信じてるのだ！」と返した。
+     ★これは わかってくれる感 ではなく上から被せる励まし。
+       曖昧な指示では止まらないので、禁止する言葉を名指しする。 */
+  it('★落ち込みのとき、励ましを急がせない（全員）', () => {
+    for (const safety of [true, false]) {
+      const d = moodDirective('down', safety);
+      expect(d).toMatch(/励まさない/);
+      expect(d).toMatch(/絶対/);
+      expect(d).toMatch(/信じてる/);
+      expect(d).toMatch(/受け止める/);
+    }
+  });
+
+  it('★数字が伸びない話を拾う（配信者に最も重い）', () => {
+    for (const t of ['フォロワー増えない', '伸びないなあ', '反応ないな', '全然見てもらえない']) {
+      expect(readMood([], t).mood).toBe('down');
+    }
   });
 
   it('平らな時は何も足さない（プロンプトを無駄に長くしない）', () => {
     expect(moodDirective('flat', false)).toBe('');
+  });
+});
+
+/* ★実害から追加(2026-09-04・本物のAIで初めて確認)
+   返ってきたもの:
+     「そんなこと気にしなくていいのだ！あなたなら絶対フォロワー増やすことが
+       できる、信じてるのだ！誰よりも面白い配信してくれるから、きっとすぐに
+       たくさんの人が集まるはずのだ」
+   ★3文だが82字。文数の条件は満たすのに長すぎ、吹き出しが途中で切れた。
+   ★字数だけ見ていた頃の反省で文数に切り替えたが、それも片手落ちだった。 */
+describe('★文の数だけでなく字数でも切る（吹き出しが切れない長さ）', () => {
+  const REAL = 'そんなこと気にしなくていいのだ！あなたなら絶対フォロワー増やすことができる、信じてるのだ！誰よりも面白い配信してくれるから、きっとすぐにたくさんの人が集まるはずのだ';
+
+  it('実際に長すぎた返事が短くなる', () => {
+    expect(tidy(REAL).length).toBeLessThanOrEqual(MAX_CHARS);
+  });
+
+  it('★文の途中では切らない（尻切れにしない）', () => {
+    const out = tidy(REAL);
+    expect(out.endsWith('…')).toBe(false);
+    expect(/[。！？!?]$/.test(out)).toBe(true);
+  });
+
+  it('短い返事はそのまま（削りすぎない）', () => {
+    expect(limitChars('いいと思うのだ！')).toBe('いいと思うのだ！');
+  });
+
+  it('上限は48字（声で読んで自然に聞ける長さ）', () => {
+    expect(MAX_CHARS).toBe(48);
   });
 });

@@ -89,7 +89,7 @@ export const REACTION_MIN_GAP_MS = 2600;
  *   setVisible: (next: boolean) => void,
  *   onCommentSpoken: (input: { commentKey: string, text?: string }) => void,
  *   onCommentSpokenEnd: () => void,
- *   onStreamerAddressed: (input: { prompt: string, answer?: string, durationMs?: number }) => string,
+ *   onStreamerAddressed: (input: { prompt: string, answer?: string, durationMs?: number, charaId?: string|null }) => string,
  *   beginThinking: (input?: { prompt?: string, charaId?: string|null }) => string,
  *   endThinking: (input?: { charaId?: string|null }) => string[],
  *   destroy: () => void
@@ -420,7 +420,11 @@ export function startCharaLive(deps) {
         prompt: String(input?.prompt ?? ''),
         answer: String(input?.answer ?? ''),
         nowMs: now(),
-        durationMs: input?.durationMs
+        durationMs: input?.durationMs,
+        // ★誰が答えるかを呼び出し側が指定できる。
+        //   指定しないとここで選び直され、「表示された名前」と
+        //   「実際に鳴る声」が食い違う（実害あり・2026-09-04）。
+        charaId: input?.charaId ?? null
       });
     },
 
