@@ -29,6 +29,7 @@ import {
   buildCharaLiveRenderModel,
   REACT_MIN_MS
 } from './charaLiveState.js';
+import { shouldChatter, buildChatterLine } from './charaChatter.js';
 import {
   buildCharaLiveStageDom,
   applyCharaLiveFrame,
@@ -47,6 +48,12 @@ export const CHARA_BACKCHANNELS = Object.freeze([
   'いいね！',
   'ふむふむ'
 ]);
+
+/**
+ * 自発発話の吹き出しを出しておく時間(ms)。
+ * 読める長さ(短い1行を声に出して2秒 + 余韻)。長すぎると次が出せない。
+ */
+export const CHATTER_HOLD_MS = 4200;
 
 /** 描画の目標 fps。18fps は venueBar の群衆アニメと同じ(会場を重くしない実績値)。 */
 export const CHARA_LIVE_FPS = 18;
@@ -151,6 +158,22 @@ export function startCharaLive(deps) {
   let lastDrawMs = -Infinity;
   // 状態が変わった直後は間引きを1回だけ飛ばして即描く(反応の鈍さを出さない)。
   let needsImmediateDraw = false;
+  /*
+   * ★自発発話(2026-09-04): 視聴者0でも沈黙させないための状態。
+   *   参照4コマの芯【視聴者0なのに、なんでこんなにうるさいのだ】は、
+   *   外から入力が無くても場が途切れないことで初めて成立する。
+   *   既存の onCommentSpoken/onStreamerAddressed は入力前提なので、
+   *   それだけでは誰も来ない配信で一言も喋らない。
+   */
+  let chatterTurn = 0;
+  /** @type {string|null} 直前に自発発話した子(連投回避)。 */
+  let lastChatterSpeaker = null;
+  let lastChatterAt = NaN;
+  /** 外の出来事(読み上げ/呼びかけ)の最終時刻。直後は自発発話を譲る。 */
+  let lastExternalAt = NaN;
+  const startedAtMs = now();
+  /** 自発発話を出すか(既定 ON。喋らせたくない用途は false にできる)。 */
+  let chatterEnabled = deps.chatter !== false;
   /** 読み上げ中の相槌担当。onAudioEnd で黙らせるために覚えておく。 */
   let speakingChara = /** @type {import('./charaLiveState.js').CharaId|null} */ (null);
   let frameId = 0;
@@ -174,6 +197,46 @@ export function startCharaLive(deps) {
     }
     needsImmediateDraw = false;
     lastDrawMs = t;
+
+    /*
+     * ★自発発話。誰も来なくても、3人が勝手に喋り続ける。
+     *   歯止めは charaChatter 側(最短間隔 / 人の発言直後は譲る)。
+     *   既に何かのモード中(相槌/返事/思考)の子には重ねない = triggerCharaAnswer が
+     *   空いている子を選ぶわけではないので、ここで idle の子だけを対象にする。
+     */
+    if (
+      chatterEnabled &&
+      shouldChatter({
+        nowMs: t,
+        lastChatterAtMs: lastChatterAt,
+        lastExternalAtMs: lastExternalAt,
+        turn: chatterTurn
+      })
+    ) {
+      const line = buildChatterLine({
+        nowMs: t,
+        turn: chatterTurn,
+        lastSpeaker: /** @type {any} */ (lastChatterSpeaker),
+        lastExternalAtMs: lastExternalAt,
+        startedAtMs
+      });
+      // 選ばれた子が塞がっていたら今回は見送る(無理に割り込まない)。
+      const slot = state.slots[line.charaId];
+      if (slot && slot.mode === 'idle') {
+        slot.mode = 'answer';
+        slot.modeStartedAtMs = t;
+        slot.untilMs = t + CHATTER_HOLD_MS;
+        slot.text = line.text;
+        state.lastSpeaker = line.charaId;
+        lastChatterSpeaker = line.charaId;
+        lastChatterAt = t;
+        chatterTurn += 1;
+      } else {
+        // 塞がっていた場合も間隔だけ進めて、次のフレームで連打しない。
+        lastChatterAt = t;
+      }
+    }
+
     expireCharaModes(state, t);
     const model = buildCharaLiveRenderModel(state, {
       timeMs: t,
@@ -189,6 +252,16 @@ export function startCharaLive(deps) {
     root,
     /** 先読み画像。GC 回収を防ぐために参照を公開して保持する(見た目には使わない)。 */
     preloadedImages,
+
+    /**
+     * 自発発話の ON/OFF。
+     * ★既定は ON(視聴者0でも沈黙させないのがこの部品の主目的)。
+     *   読み上げ連動だけで使いたい用途のために切れるようにしてある。
+     * @param {boolean} on
+     */
+    setChatter(on) {
+      chatterEnabled = on !== false;
+    },
 
     /**
      * 表示/非表示。会場を閉じている間は描画を止める(閉じても CPU を食い続けない)。
@@ -230,6 +303,8 @@ export function startCharaLive(deps) {
         speakingChara = who;
         needsImmediateDraw = true;
       }
+      // ★人(コメント)が喋った = 外の出来事。直後の自発発話を譲らせる。
+      lastExternalAt = t;
     },
 
     /**
@@ -256,6 +331,8 @@ export function startCharaLive(deps) {
      */
     onStreamerAddressed(input) {
       needsImmediateDraw = true;
+      // ★配信者が話しかけた = 外の出来事。かぶせて自分語りを始めない。
+      lastExternalAt = now();
       return triggerCharaAnswer(state, {
         prompt: String(input?.prompt ?? ''),
         answer: String(input?.answer ?? ''),

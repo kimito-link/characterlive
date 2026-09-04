@@ -9,7 +9,13 @@ import {
 import { CHARA_LIVE_IDS } from './charaLiveState.js';
 
 /** 時間と rAF を手で回すテスト用ハーネス(実時間に依存させない)。 */
-function makeHarness() {
+/**
+ * @param {{ chatter?: boolean }} [opts]
+ *   chatter=false で自発発話を止める。
+ *   ★相槌/返事など「外からの入力」だけを見たいテストは必ず false にする
+ *     (自発発話が同時に走ると、喋っている子が2人になって数が合わなくなる)。
+ */
+function makeHarness(opts = {}) {
   let now = 0;
   /** @type {Array<() => void>} */
   let frames = [];
@@ -23,7 +29,8 @@ function makeHarness() {
     },
     cancelFrame: () => {},
     reducedMotion: false,
-    getHeatLevel: () => 0.3
+    getHeatLevel: () => 0.3,
+    chatter: opts.chatter === true
   });
   return {
     live,
@@ -359,6 +366,97 @@ describe('★重ね絵(パーツ方式)が DOM に出ている', () => {
     const t = el.style.transform;
     // translate/rotate/scale が1つの transform 値に同居していること。
     expect(t).toMatch(/translate\(.+\) rotate\(.+\) scale\(.+\)/);
+    h.live.destroy();
+  });
+});
+
+/*
+ * ★このリポの主目的そのもの(2026-09-04)。
+ *   参照4コマ【視聴者0なのに、なんでこんなにうるさいのだ】=
+ *   外から入力が1件も無くても、3人が勝手に喋り続けること。
+ *   ここが通らなければ、この部品は「置物」であって目的を果たしていない。
+ */
+describe('★自発発話(視聴者0でも沈黙しない)', () => {
+  it('コメントも呼びかけも無いのに、開いてすぐ誰かが喋る', () => {
+    const h = makeHarness({ chatter: true });
+    h.advance(0);
+    const bubbles = [...h.live.root.querySelectorAll('.nlcl-chara__bubble')].filter(
+      (b) => !b.hidden
+    );
+    expect(bubbles.length).toBe(1);
+    expect(bubbles[0].textContent.trim().length).toBeGreaterThan(0);
+    h.live.destroy();
+  });
+
+  it('放っておくと何度も喋る(1回で黙らない)', () => {
+    const h = makeHarness({ chatter: true });
+    const said = new Set();
+    for (let i = 0; i < 400; i += 1) {
+      h.advance(500); // 合計200秒
+      for (const b of h.live.root.querySelectorAll('.nlcl-chara__bubble')) {
+        if (!b.hidden && b.textContent.trim()) said.add(b.textContent.trim());
+      }
+    }
+    // 200秒でいくつも違う台詞が出ている = 場が途切れていない。
+    expect(said.size).toBeGreaterThan(4);
+    h.live.destroy();
+  });
+
+  it('3人とも喋る(1人だけが独り言を言い続けない)', () => {
+    const h = makeHarness({ chatter: true });
+    const speakers = new Set();
+    for (let i = 0; i < 400; i += 1) {
+      h.advance(500);
+      for (const el of h.live.root.querySelectorAll('.nlcl-chara')) {
+        const b = el.querySelector('.nlcl-chara__bubble');
+        if (b && !b.hidden && b.textContent.trim()) speakers.add(el.dataset.chara);
+      }
+    }
+    expect(speakers.size).toBe(3);
+    h.live.destroy();
+  });
+
+  it('setChatter(false) で黙る(切れる)', () => {
+    const h = makeHarness({ chatter: true });
+    h.advance(0);
+    h.live.setChatter(false);
+    // 十分な時間を進めても、新しい発話は始まらない。
+    for (let i = 0; i < 120; i += 1) h.advance(500);
+    const visible = [...h.live.root.querySelectorAll('.nlcl-chara__bubble')].filter(
+      (b) => !b.hidden
+    );
+    expect(visible.length).toBe(0);
+    h.live.destroy();
+  });
+
+  it('★人が喋った直後は【新しい】自発発話を始めない(かぶせない)', () => {
+    // ★注意: 1回目の自発発話の吹き出しは CHATTER_HOLD_MS(4.2秒)残る。
+    //   それは「かぶせ」ではないので、消えるまで待ってから観測する。
+    const h = makeHarness({ chatter: true });
+    h.advance(0);
+    // 1回目が自然に消えるまで進める。
+    for (let i = 0; i < 12; i += 1) h.advance(500); // t=6000
+    const beforeTexts = new Set(
+      [...h.live.root.querySelectorAll('.nlcl-chara__bubble')]
+        .filter((b) => !b.hidden)
+        .map((b) => b.textContent.trim())
+    );
+
+    // ここで人(コメント)が喋る → 直後の数秒は自発発話を譲るはず。
+    h.live.onCommentSpoken({ commentKey: 'no:1' });
+    h.advance(100);
+    h.live.onCommentSpokenEnd();
+    h.advance(100);
+
+    // 相槌が畳まれた直後〜数秒は、新しい自発発話が始まっていない。
+    const afterTexts = new Set(
+      [...h.live.root.querySelectorAll('.nlcl-chara__bubble')]
+        .filter((b) => !b.hidden)
+        .map((b) => b.textContent.trim())
+    );
+    for (const t of afterTexts) {
+      expect(beforeTexts.has(t), `人の発言直後に新しく喋り出した: "${t}"`).toBe(true);
+    }
     h.live.destroy();
   });
 });

@@ -48,7 +48,9 @@
       #stage {
         flex: 1;
         display: flex;
-        align-items: center;
+        /* ★下寄せ = 配信画面に重ねたときと同じ「床に立っている」見え方にする
+           (中央寄せだと宙に浮いて見え、実際の使われ方と印象がずれる)。 */
+        align-items: flex-end;
         justify-content: center;
         padding: 10px 16px 24px;
         /* 立ち絵が乗る「床」。透過PNGの輪郭が見えるように少し沈んだ色にする。 */

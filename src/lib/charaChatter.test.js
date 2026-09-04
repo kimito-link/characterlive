@@ -1,0 +1,224 @@
+import { describe, it, expect } from 'vitest';
+import {
+  CHATTER_LINES,
+  CHATTER_MIN_GAP_MS,
+  CHATTER_MAX_GAP_MS,
+  CHATTER_LONELY_MS,
+  pickDeterministic,
+  nextChatterDelayMs,
+  shouldChatter,
+  resolveChatterKind,
+  pickChatterSpeaker,
+  buildChatterLine
+} from './charaChatter.js';
+
+const IDS = /** @type {const} */ (['rinku', 'konta', 'tanunee']);
+const KINDS = /** @type {const} */ (['greet', 'idle', 'cheer', 'tease', 'silence']);
+
+describe('台詞の中身', () => {
+  it('3人 × 5種類がすべて埋まっている(黙る組み合わせが無い)', () => {
+    for (const id of IDS) {
+      for (const kind of KINDS) {
+        const lines = CHATTER_LINES[id][kind];
+        expect(Array.isArray(lines), `${id}.${kind} が配列でない`).toBe(true);
+        expect(lines.length, `${id}.${kind} が空`).toBeGreaterThan(0);
+        for (const l of lines) expect(String(l).trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('吹き出しに収まる長さ(1行が長すぎない)', () => {
+    for (const id of IDS) {
+      for (const kind of KINDS) {
+        for (const l of CHATTER_LINES[id][kind]) {
+          // 吹き出しは3行で切れる。全角30字を超えると読めない。
+          expect(l.length, `長すぎ: ${id}.${kind} "${l}"`).toBeLessThanOrEqual(34);
+        }
+      }
+    }
+  });
+
+  it('★3人の口調が混ざっていない(4コマの描き分けを守る)', () => {
+    // りんくは「のだ」。こん太/たぬ姉は使わない。
+    const rinku = Object.values(CHATTER_LINES.rinku).flat();
+    expect(rinku.filter((l) => l.includes('のだ')).length).toBeGreaterThan(rinku.length / 2);
+
+    // たぬ姉は「のだ」を使わない(冷静な口調)。
+    for (const l of Object.values(CHATTER_LINES.tanunee).flat()) {
+      expect(l, `たぬ姉がりんく口調: "${l}"`).not.toContain('のだ');
+    }
+    // こん太も「のだ」を使わない。
+    for (const l of Object.values(CHATTER_LINES.konta).flat()) {
+      expect(l, `こん太がりんく口調: "${l}"`).not.toContain('のだ');
+    }
+  });
+});
+
+describe('抽選', () => {
+  it('同じ seed なら常に同じ(決定論)', () => {
+    expect(pickDeterministic(['a', 'b', 'c'], 'x')).toBe(pickDeterministic(['a', 'b', 'c'], 'x'));
+  });
+
+  it('空配列でも壊れない', () => {
+    expect(pickDeterministic([], 'x')).toBeNull();
+    expect(pickDeterministic(null, 'x')).toBeNull();
+  });
+});
+
+describe('間合い', () => {
+  it('待ち時間は最短〜最長の範囲に収まる', () => {
+    for (let t = 0; t < 200; t += 1) {
+      const d = nextChatterDelayMs(t);
+      expect(d).toBeGreaterThanOrEqual(CHATTER_MIN_GAP_MS);
+      expect(d).toBeLessThanOrEqual(CHATTER_MAX_GAP_MS);
+    }
+  });
+
+  it('等間隔ではない(機械に見せない)', () => {
+    const set = new Set();
+    for (let t = 0; t < 40; t += 1) set.add(nextChatterDelayMs(t));
+    expect(set.size).toBeGreaterThan(5);
+  });
+
+  it('初回はすぐ喋る(開いた瞬間に居ることを見せる)', () => {
+    expect(shouldChatter({ nowMs: 0, lastChatterAtMs: NaN })).toBe(true);
+  });
+
+  it('間が空いていなければ喋らない', () => {
+    expect(shouldChatter({ nowMs: 1000, lastChatterAtMs: 0, turn: 0 })).toBe(false);
+  });
+
+  it('十分間が空けば喋る', () => {
+    expect(
+      shouldChatter({ nowMs: CHATTER_MAX_GAP_MS + 1, lastChatterAtMs: 0, turn: 0 })
+    ).toBe(true);
+  });
+
+  it('★人が喋った直後は黙る(かぶせて自分語りしない)', () => {
+    const now = 100_000;
+    expect(
+      shouldChatter({
+        nowMs: now,
+        lastChatterAtMs: 0,
+        lastExternalAtMs: now - 1000, // 1秒前に読み上げがあった
+        turn: 0
+      })
+    ).toBe(false);
+  });
+
+  it('人の発言から十分経てば再び喋る', () => {
+    const now = 100_000;
+    expect(
+      shouldChatter({
+        nowMs: now,
+        lastChatterAtMs: 0,
+        lastExternalAtMs: now - 7000,
+        turn: 0
+      })
+    ).toBe(true);
+  });
+});
+
+describe('何を言うか', () => {
+  it('1回目は挨拶(配信の入り口)', () => {
+    expect(resolveChatterKind({ nowMs: 0, turn: 0, startedAtMs: 0 })).toBe('greet');
+  });
+
+  it('★長く静かなら「いるよ」か励ましになる(4コマの芯)', () => {
+    const now = CHATTER_LONELY_MS + 10_000;
+    const kinds = new Set();
+    for (let t = 1; t < 30; t += 1) {
+      kinds.add(resolveChatterKind({ nowMs: now, turn: t, startedAtMs: 0 }));
+    }
+    // 静かなときは silence / cheer だけ(雑談やいじりで流さない)
+    for (const k of kinds) expect(['silence', 'cheer']).toContain(k);
+    expect(kinds.has('silence')).toBe(true);
+  });
+
+  it('動きがあるうちは雑談中心だが、励ましもいじりも混ざる', () => {
+    const kinds = new Set();
+    for (let t = 1; t < 60; t += 1) {
+      kinds.add(resolveChatterKind({ nowMs: 10_000, turn: t, lastExternalAtMs: 9_000 }));
+    }
+    expect(kinds.has('idle')).toBe(true);
+    expect(kinds.size).toBeGreaterThan(1);
+  });
+});
+
+describe('誰が言うか', () => {
+  it('直前に喋った子は連投しない', () => {
+    for (const last of IDS) {
+      for (let t = 0; t < 40; t += 1) {
+        for (const kind of KINDS) {
+          expect(pickChatterSpeaker({ kind, turn: t, lastSpeaker: last })).not.toBe(last);
+        }
+      }
+    }
+  });
+
+  it('★いじりは たぬ姉の役(4コマの役割分担)', () => {
+    for (let t = 0; t < 20; t += 1) {
+      expect(pickChatterSpeaker({ kind: 'tease', turn: t, lastSpeaker: null })).toBe('tanunee');
+    }
+  });
+
+  it('たぬ姉が直前ならいじりも他の子に回る(連投回避が優先)', () => {
+    expect(pickChatterSpeaker({ kind: 'tease', turn: 1, lastSpeaker: 'tanunee' })).not.toBe(
+      'tanunee'
+    );
+  });
+
+  it('3人に散る(1人に偏らない)', () => {
+    const seen = new Set();
+    let last = null;
+    for (let t = 0; t < 30; t += 1) {
+      const who = pickChatterSpeaker({ kind: 'idle', turn: t, lastSpeaker: last });
+      seen.add(who);
+      last = who;
+    }
+    expect(seen.size).toBe(3);
+  });
+});
+
+describe('1回ぶんの発話', () => {
+  it('必ず誰かが何かを言う(空にならない)', () => {
+    for (let t = 0; t < 100; t += 1) {
+      const line = buildChatterLine({ nowMs: t * 1000, turn: t, startedAtMs: 0 });
+      expect(IDS).toContain(line.charaId);
+      expect(line.text.trim().length).toBeGreaterThan(0);
+      expect(KINDS).toContain(line.kind);
+    }
+  });
+
+  it('喋った子の台詞が、その子の台本から出ている(口調が混ざらない)', () => {
+    for (let t = 0; t < 100; t += 1) {
+      const line = buildChatterLine({ nowMs: t * 1000, turn: t, startedAtMs: 0 });
+      const own = Object.values(CHATTER_LINES[line.charaId]).flat();
+      expect(own, `${line.charaId} が他人の台詞を喋った: "${line.text}"`).toContain(line.text);
+    }
+  });
+
+  it('同じ入力なら同じ結果(決定論)', () => {
+    const a = buildChatterLine({ nowMs: 5000, turn: 3, startedAtMs: 0 });
+    const b = buildChatterLine({ nowMs: 5000, turn: 3, startedAtMs: 0 });
+    expect(a).toEqual(b);
+  });
+
+  it('★視聴者0のまま放っておいても喋り続ける(沈黙しない)', () => {
+    // 5分間、外部入力ゼロで回す。
+    let last = -Infinity;
+    let turn = 0;
+    let spoke = 0;
+    let lastSpeaker = null;
+    for (let now = 0; now <= 300_000; now += 500) {
+      if (!shouldChatter({ nowMs: now, lastChatterAtMs: last, turn })) continue;
+      const line = buildChatterLine({ nowMs: now, turn, lastSpeaker, startedAtMs: 0 });
+      lastSpeaker = line.charaId;
+      last = now;
+      turn += 1;
+      spoke += 1;
+    }
+    // 5分で最低でも十数回は喋っている = 場が途切れない。
+    expect(spoke).toBeGreaterThan(12);
+  });
+});

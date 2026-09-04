@@ -10,7 +10,19 @@
  *   ただし受け口は開いている: onStreamerAddressed / beginThinking / endThinking。
  */
 
-export { startCharaLive, CHARA_BACKCHANNELS, CHARA_LIVE_FPS } from './lib/charaLiveController.js';
+export {
+  startCharaLive,
+  CHARA_BACKCHANNELS,
+  CHARA_LIVE_FPS,
+  CHATTER_HOLD_MS
+} from './lib/charaLiveController.js';
+export {
+  CHATTER_LINES,
+  buildChatterLine,
+  shouldChatter,
+  resolveChatterKind,
+  pickChatterSpeaker
+} from './lib/charaChatter.js';
 export {
   CHARA_LIVE_MEMBERS,
   CHARA_LIVE_IDS,
