@@ -377,27 +377,42 @@ describe('★重ね絵(パーツ方式)が DOM に出ている', () => {
  *   ここが通らなければ、この部品は「置物」であって目的を果たしていない。
  */
 describe('★自発発話(視聴者0でも沈黙しない)', () => {
-  it('コメントも呼びかけも無いのに、開いてすぐ誰かが喋る', () => {
+  // ★2026-09-04 設計変更: 開いた瞬間に喋るのをやめた（急かさないため）。
+  //   開くのは配信の準備中であることが多い。居ることは3人が浮いている時点で伝わる。
+  it('★開いた直後は喋らない(準備中に話しかけない)', () => {
     const h = makeHarness({ chatter: true });
     h.advance(0);
+    for (let i = 0; i < 20; i += 1) h.advance(500); // t=10秒
     const bubbles = [...h.live.root.querySelectorAll('.nlcl-chara__bubble')].filter(
       (b) => !b.hidden
     );
-    expect(bubbles.length).toBe(1);
-    expect(bubbles[0].textContent.trim().length).toBeGreaterThan(0);
+    expect(bubbles.length).toBe(0);
+    h.live.destroy();
+  });
+
+  it('しばらく待てば、こちらから声をかける(0人でも独りにしない)', () => {
+    const h = makeHarness({ chatter: true });
+    let spoke = false;
+    for (let i = 0; i < 200; i += 1) {
+      h.advance(500); // 合計100秒
+      const b = [...h.live.root.querySelectorAll('.nlcl-chara__bubble')].filter((x) => !x.hidden);
+      if (b.length && b[0].textContent.trim()) spoke = true;
+    }
+    expect(spoke).toBe(true);
     h.live.destroy();
   });
 
   it('放っておくと何度も喋る(1回で黙らない)', () => {
     const h = makeHarness({ chatter: true });
     const said = new Set();
-    for (let i = 0; i < 400; i += 1) {
-      h.advance(500); // 合計200秒
+    // ★間隔を 45〜90秒 に空けたので、観測窓も伸ばす(20分)。
+    for (let i = 0; i < 2400; i += 1) {
+      h.advance(500); // 合計20分
       for (const b of h.live.root.querySelectorAll('.nlcl-chara__bubble')) {
         if (!b.hidden && b.textContent.trim()) said.add(b.textContent.trim());
       }
     }
-    // 200秒でいくつも違う台詞が出ている = 場が途切れていない。
+    // 20分でいくつも違う台詞が出ている = 場が途切れていない。
     expect(said.size).toBeGreaterThan(4);
     h.live.destroy();
   });
@@ -405,7 +420,8 @@ describe('★自発発話(視聴者0でも沈黙しない)', () => {
   it('3人とも喋る(1人だけが独り言を言い続けない)', () => {
     const h = makeHarness({ chatter: true });
     const speakers = new Set();
-    for (let i = 0; i < 400; i += 1) {
+    // ★間隔を空けたぶん観測窓を伸ばす(20分)。持ち回りの性質自体は変えていない。
+    for (let i = 0; i < 2400; i += 1) {
       h.advance(500);
       for (const el of h.live.root.querySelectorAll('.nlcl-chara')) {
         const b = el.querySelector('.nlcl-chara__bubble');

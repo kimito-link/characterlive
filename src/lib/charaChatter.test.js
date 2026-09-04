@@ -83,8 +83,16 @@ describe('間合い', () => {
     expect(set.size).toBeGreaterThan(5);
   });
 
-  it('初回はすぐ喋る(開いた瞬間に居ることを見せる)', () => {
-    expect(shouldChatter({ nowMs: 0, lastChatterAtMs: NaN })).toBe(true);
+  // ★2026-09-04 設計変更: 「開いた瞬間に喋る」をやめた。
+  //   開くのは配信の準備中であることが多く、いきなり話しかけられるのは急かしそのもの。
+  //   居ることは3人が画面に浮いている時点で伝わっている(声で主張しなくてよい)。
+  it('★開いた直後は喋らない(準備中に話しかけない)', () => {
+    expect(shouldChatter({ nowMs: 0, lastChatterAtMs: NaN, startedAtMs: 0 })).toBe(false);
+    expect(shouldChatter({ nowMs: 10_000, lastChatterAtMs: NaN, startedAtMs: 0 })).toBe(false);
+  });
+
+  it('開いてから十分経てば、こちらから一言だけ言う(0人でも独りにしない)', () => {
+    expect(shouldChatter({ nowMs: 60_000, lastChatterAtMs: NaN, startedAtMs: 0 })).toBe(true);
   });
 
   it('間が空いていなければ喋らない', () => {
@@ -109,15 +117,19 @@ describe('間合い', () => {
     ).toBe(false);
   });
 
+  // ★人が喋った直後に譲る時間を 6秒 → 12秒 に延ばした(2026-09-04)。
+  //   6秒では、続きを言いかけた相手にかぶる。Grok:「急かすのは silence 判定の短さ」
+  it('人が喋った直後は、7秒経っていても黙っている', () => {
+    const now = 100_000;
+    expect(
+      shouldChatter({ nowMs: now, lastChatterAtMs: 0, lastExternalAtMs: now - 7000, turn: 0 })
+    ).toBe(false);
+  });
+
   it('人の発言から十分経てば再び喋る', () => {
     const now = 100_000;
     expect(
-      shouldChatter({
-        nowMs: now,
-        lastChatterAtMs: 0,
-        lastExternalAtMs: now - 7000,
-        turn: 0
-      })
+      shouldChatter({ nowMs: now, lastChatterAtMs: 0, lastExternalAtMs: now - 15_000, turn: 0 })
     ).toBe(true);
   });
 });
@@ -213,16 +225,18 @@ describe('1回ぶんの発話', () => {
     let turn = 0;
     let spoke = 0;
     let lastSpeaker = null;
-    for (let now = 0; now <= 300_000; now += 500) {
-      if (!shouldChatter({ nowMs: now, lastChatterAtMs: last, turn })) continue;
+    for (let now = 0; now <= 1_200_000; now += 500) {
+      if (!shouldChatter({ nowMs: now, lastChatterAtMs: last, turn, startedAtMs: 0 })) continue;
       const line = buildChatterLine({ nowMs: now, turn, lastSpeaker, startedAtMs: 0 });
       lastSpeaker = line.charaId;
       last = now;
       turn += 1;
       spoke += 1;
     }
-    // 5分で最低でも十数回は喋っている = 場が途切れない。
+    // ★20分で十数回 = 1〜2分に1回。「居る」が伝わり、かつ急かさない量。
+    //   ここを増やす"改善"は劣化(9〜20秒に戻すと配信のテンポを壊す)。
     expect(spoke).toBeGreaterThan(12);
+    expect(spoke).toBeLessThan(30);
   });
 });
 
@@ -293,12 +307,19 @@ describe('★最初から隠れていても止まらない', () => {
     doc.body.appendChild(mount);
     const live = startCharaLive({ doc, mount, resolveUrl: (p) => p });
 
-    // タイマー側が拾ってフレームが進むのを待つ。
-    await new Promise((r) => setTimeout(r, 400));
+    // ★フレームが進んだことを「浮遊の位置が変わったか」で見る(2026-09-04変更)。
+    //   以前は「誰かが喋ったか」で見ていたが、開いた直後の発話をやめた(急かさないため)ので
+    //   その証拠は使えなくなった。★浮遊は毎フレーム動くので、こちらの方が直接的。
+    const face = doc.querySelector('.nlcl-chara');
+    const before = face?.getAttribute('style') || '';
 
-    const bubbles = [...doc.querySelectorAll('.nlcl-chara__bubble')].filter((b) => !b.hidden);
+    // タイマー側が拾ってフレームが進むのを待つ。
+    await new Promise((r) => setTimeout(r, 600));
+
+    const after = face?.getAttribute('style') || '';
     expect(rafRegistered, 'rAF は登録されている（併走している証拠）').toBeGreaterThan(0);
-    expect(bubbles.length, '★rAFが来なくても誰かが喋っている').toBeGreaterThan(0);
+    expect(face, 'キャラが描かれている').toBeTruthy();
+    expect(after, '★rAFが来なくてもフレームが進んでいる(浮遊が動いた)').not.toBe(before);
 
     live.destroy();
     w.close();

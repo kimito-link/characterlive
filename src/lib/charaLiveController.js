@@ -30,6 +30,7 @@ import {
   REACT_MIN_MS
 } from './charaLiveState.js';
 import { shouldChatter, buildChatterLine } from './charaChatter.js';
+import { isSafeIdleLine } from './charaIdle.js';
 import {
   buildCharaLiveStageDom,
   applyCharaLiveFrame,
@@ -265,7 +266,9 @@ export function startCharaLive(deps) {
         nowMs: t,
         lastChatterAtMs: lastChatterAt,
         lastExternalAtMs: lastExternalAt,
-        turn: chatterTurn
+        turn: chatterTurn,
+        // ★初回の間合いを測るのに開始時刻が要る(渡さないと永久に喋らない)。
+        startedAtMs
       })
     ) {
       const line = buildChatterLine({
@@ -275,9 +278,12 @@ export function startCharaLive(deps) {
         lastExternalAtMs: lastExternalAt,
         startedAtMs
       });
+      // ★自分から言うときは「答えを求めない」ものだけ(2026-09-04・Grokの助言)
+      //   「稀に一言だけ・答えを求めない」。疑問形は相手に返事の義務を作る＝急かす。
+      //   弾いた回は間隔だけ進めて次に回す(無理に別の台詞を探して喋らない)。
       // 選ばれた子が塞がっていたら今回は見送る(無理に割り込まない)。
       const slot = state.slots[line.charaId];
-      if (slot && slot.mode === 'idle') {
+      if (slot && slot.mode === 'idle' && isSafeIdleLine(line.text)) {
         slot.mode = 'answer';
         slot.modeStartedAtMs = t;
         slot.untilMs = t + CHATTER_HOLD_MS;

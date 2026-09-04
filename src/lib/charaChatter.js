@@ -165,10 +165,28 @@ export function pickDeterministic(list, seed) {
  * 間合い(いつ喋るか)
  * ------------------------------------------------------------------ */
 
+/*
+ * ★間隔は「急かさない」側に倒す(2026-09-04・Grokに相談して確定)
+ *
+ *   当初は 9〜20秒 だった。これは**急かす側**だと分かったので大きく空けた。
+ *   - Grok:「配信者向けなら急かさない方が正義。silence_duration は長め。
+ *            ★プロンプトだけでは急かしは直らない。タイマーと発話権が先」
+ *   - kazuya_bros(1年かけて同種を作った人):
+ *     「ゲームプレイ中にランダムに割り込まれると配信のテンポが非常に悪くなる」
+ *   - yuki-P:「AIが全ての発言に反応すると主張が強くなりすぎてしまいます」
+ *
+ *   ★ただし黙らせきらない(Grokの補足・製品の芯と一致):
+ *     「0人配信向けなら idle を完全オフより『稀に一言だけ・答えを求めない』方が
+ *       目的に合う。★急かすのは silence 判定の短さで、存在感は別物」
+ *   → 頻度は落とすが、居ることはやめない。答えを求めない台詞に限る(isSafeIdleLine)。
+ *
+ *   ★この値を小さくする"改善"は劣化。charaChatter.test.js が下限を固定している。
+ */
+
 /** 自発発話の最短間隔(ms)。これより短い間隔では喋らない。 */
-export const CHATTER_MIN_GAP_MS = 9_000;
+export const CHATTER_MIN_GAP_MS = 45_000;
 /** 自発発話の最長間隔(ms)。これだけ黙ったら必ず何か言う(沈黙を放置しない)。 */
-export const CHATTER_MAX_GAP_MS = 20_000;
+export const CHATTER_MAX_GAP_MS = 90_000;
 /**
  * 「静かすぎる」と判断する境目(ms)。
  * 配信者もコメントもこれだけ動きが無ければ、silence 系(「いるよ」)を出す。
@@ -210,16 +228,24 @@ export function shouldChatter(input) {
   const now = Number(input?.nowMs) || 0;
   const last = Number(input?.lastChatterAtMs);
   const turn = Number.isFinite(input?.turn) ? Number(input.turn) : 0;
+  // ★人が喋った直後に譲る時間。6秒では続きを言いかけた相手にかぶる。
   const quietAfter = Number.isFinite(input?.quietAfterExternalMs)
     ? Number(input.quietAfterExternalMs)
-    : 6_000;
+    : 12_000;
   const lastExternal = Number(input?.lastExternalAtMs);
 
   // 外の出来事の直後は譲る(人の発言にかぶせない)。
   if (Number.isFinite(lastExternal) && now - lastExternal < quietAfter) return false;
 
-  // 初回はすぐ喋ってよい(開いた瞬間に「居る」ことを見せる)。
-  if (!Number.isFinite(last)) return true;
+  // ★初回も間を置く(2026-09-04変更)。
+  //   以前は「開いた瞬間に居ることを見せる」ため即発話していたが、
+  //   開くのは配信の準備中であることが多く、いきなり話しかけられるのは急かしそのもの。
+  //   居ることは画面に3人が浮いている時点で既に伝わっている。
+  if (!Number.isFinite(last)) {
+    const started = Number(input?.startedAtMs);
+    if (!Number.isFinite(started)) return false;
+    return now - started >= CHATTER_MIN_GAP_MS;
+  }
 
   return now - last >= nextChatterDelayMs(turn);
 }

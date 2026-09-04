@@ -83,3 +83,42 @@ describe('isSafeIdleLine — 自分から言うときは答えを求めない', 
     expect(isSafeIdleLine('')).toBe(false);
   });
 });
+
+/*
+ * ★発話権は1つであること（2026-09-04・Grokの警告に対する回帰防止）
+ *
+ *   Grokの指摘:
+ *     「1人ずつ発話権を取る部品と、3本の独立タイマーが同居すると、また全員が喋り出す」
+ *     「★再武装も同じ穴。喋ったあとに『次の45秒/90秒』を各キャラが自分でセットしてたら、
+ *       結局3本に戻る。起こすのは仲裁役1つだけ」
+ *
+ *   現状は正しい（rAF/タイマー1本 + lastChatterAt という共有変数1つ）。
+ *   ★これは**壊れやすい正しさ**なので、構造そのものをテストで固定する。
+ *   「キャラごとに次の時刻を持たせる」改修は、ここで落ちる。
+ */
+import { readFileSync } from 'node:fs';
+
+describe('★発話権は1つ（3本に戻さない）', () => {
+  const controller = readFileSync(
+    new URL('./charaLiveController.js', import.meta.url),
+    'utf-8'
+  );
+  // コメント中の記述で誤判定しないよう、コメントを外してから調べる。
+  const code = controller
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  it('setInterval を使わない（キャラごとに回すと3本になる）', () => {
+    expect(code).not.toMatch(/setInterval\s*\(/);
+  });
+
+  it('★キャラのスロットに「次に喋る時刻」を持たせない（再武装は仲裁役だけ）', () => {
+    expect(code).not.toMatch(/slots\[[^\]]+\]\.(nextChatterAt|nextAt|timer|timerId)/);
+    expect(code).not.toMatch(/slot\.(nextChatterAt|nextAt|timer|timerId)/);
+  });
+
+  it('自発発話の時刻は1つの変数だけが持つ', () => {
+    const decls = code.match(/let\s+lastChatterAt\b/g) || [];
+    expect(decls.length).toBe(1);
+  });
+});
