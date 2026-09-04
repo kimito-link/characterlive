@@ -92,9 +92,21 @@ export async function think(input) {
       return h.who === persona.displayName ? `あなた: ${h.text}` : `仲間: ${h.text}`;
     })
     .join('\n');
+  // ★「〜ですね」で受け流させない（ユーザー要望:「superficial な返答じゃなく」）
+  //   ★オウム返しを名指しで禁じる。Grokのプロンプトが決まり文句を名指しで
+  //     禁止しているのと同じ手法（曖昧に「深く返せ」と言っても効かない）。
+  const ask =
+    `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`;
   const user = hist
-    ? `これまでの会話:\n${hist}\n\n配信者:「${input.text}」\n\n${persona.displayName}として1〜2文で返して。`
-    : `配信者:「${input.text}」\n\n${persona.displayName}として1〜2文で返して。`;
+    ? `これまでの会話:
+${hist}
+
+配信者:「${input.text}」
+
+${ask}`
+    : `配信者:「${input.text}」
+
+${ask}`;
 
   const LM = /** @type {any} */ (globalThis).LanguageModel;
   const t0 = performance.now();
@@ -161,13 +173,43 @@ export function tidy(raw) {
   // 記号・箇条書き・絵文字っぽいものを除去（声で読むため）
   t = t.replace(/^[「『]|[」』]$/g, '').replace(/^[-*・]\s*/gm, '');
   t = t.replace(/\s*\n+\s*/g, ' ').trim();
-  // 長すぎたら最初の1文で切る
-  if (t.length > 60) {
-    const m = t.match(/^[^。！？!?]*[。！？!?]/);
-    if (m) t = m[0];
-  }
-  if (t.length > 80) t = t.slice(0, 78) + '…';
+  // ★文の数で切る（2026-09-04・ユーザー要望「返答は1〜3文。必要なら追加で1文」）
+  //   ★以前は文字数(60字)でしか見ておらず、短ければ4文でも5文でも通っていた。
+  //     「長すぎると機械っぽくなる」のは字数ではなく**文の数**の問題。
+  t = limitSentences(t, MAX_SENTENCES);
+
+  // 1文が異常に長い場合の保険（句点を打たずに喋り続けるモデルがある）
+  if (t.length > 90) t = t.slice(0, 88) + '…';
   return t;
+}
+
+/** ★返事の上限。3文まで（必要な1文の追加を含めて4文は超えない）。 */
+export const MAX_SENTENCES = 3;
+
+/**
+ * 文の数で切る（純関数）。
+ *
+ * ★「必要なら追加で1文」への対処:
+ *   3文目が接続で終わっている（「でも」「だから」等で次に続く形）ときだけ4文目を許す。
+ *   ★言い切って終われるならそこで止めるのが基本。
+ *
+ * @param {string} text
+ * @param {number} max
+ * @returns {string}
+ */
+export function limitSentences(text, max = MAX_SENTENCES) {
+  const t = String(text || '').trim();
+  if (!t) return '';
+  // 句点・感嘆符・疑問符で区切る（末尾に句点が無い文も拾う）
+  const parts = t.match(/[^。！？!?]+[。！？!?]?/g) || [t];
+  if (parts.length <= max) return t;
+
+  let kept = parts.slice(0, max).join('').trim();
+  // ★3文目が続きを求める形なら、4文目まで許す（途中で切ると意味が壊れる）
+  if (/(でも|だから|けど|though|ので|から)$/.test(kept.replace(/[。！？!?]$/, ''))) {
+    kept = parts.slice(0, max + 1).join('').trim();
+  }
+  return kept;
 }
 
 /**
