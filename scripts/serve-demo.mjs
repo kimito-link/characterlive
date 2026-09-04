@@ -1,9 +1,14 @@
 /**
- * serve-demo.mjs — demo.html を開くためだけの静的サーバ。
+ * serve-demo.mjs — このリポの静的サーバ。
  *
- * ★なぜ要るか: demo.html は ES module を import する。file:// で開くと
+ * ★なぜ要るか: ページは ES module を import する。file:// で開くと
  *   CORS で module がロードされず【真っ白な画面】になる(ページのせいに見える)。
  *   http:// で出せば済むので、依存を増やさず Node 標準だけで出す。
+ *
+ * ★ルート(/) は index.html = LP（2026-09-04 変更）。
+ *   以前は demo.html を返していたが、LPを作った後もそのままだったため
+ *   「LPを開いたつもりがデモが出る」取り違えが実際に起きた。
+ *   Web の標準どおり index.html を既定にする。開発用のデモは /demo.html で開く。
  */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -24,7 +29,8 @@ const TYPES = {
 
 createServer(async (req, res) => {
   const url = decodeURIComponent((req.url || '/').split('?')[0]);
-  const rel = url === '/' ? 'demo.html' : url.replace(/^\/+/, '');
+  // ★ルートは index.html(LP)。デモは /demo.html を明示して開く。
+  const rel = url === '/' ? 'index.html' : url.replace(/^\/+/, '');
   // ルート外へ出さない(..%2f 等の相対脱出を弾く)。
   const path = join(ROOT, normalize(rel));
   if (!path.startsWith(ROOT)) {
