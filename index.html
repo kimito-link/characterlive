@@ -3,19 +3,88 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!--
+      ===== OGP（SNSに貼ったとき出るカード）=====
+      ★head の先頭付近に置く。理由:
+        - WhatsApp は head が HTML の先頭300KB以内にある必要がある
+        - Slack は Range ヘッダで head の一部しか読まない
+      ★og:image は【絶対URL必須】。相対パスは全社が無視する（以前これで出ていなかった）。
+      ★LINE は og:title / og:description / og:image の【3つだけ】読む（LINE公式FAQ）。
+        しかも正方形にクロップされることがあるので、画像は中央630x630に要素を寄せてある。
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://characterlive.link/" />
+    <meta property="og:title" content="視聴者0人でも、ひとりじゃない。 — characterlive" />
+    <!-- ★80字以内。WhatsApp の公式上限で、LINE もここを読む -->
+    <meta property="og:description" content="誰も来ない配信で、ゆっくり3人組が勝手に喋り続けます。無料。" />
+    <meta property="og:image" content="https://characterlive.link/assets/og/og-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta
+      property="og:image:alt"
+      content="りんく・こん太・たぬ姉の3人が並んだカード画像。視聴者0人でも、ひとりじゃない。"
+    />
+    <meta property="og:site_name" content="characterlive" />
+    <meta property="og:locale" content="ja_JP" />
+
+    <!-- X は og: にフォールバックするので、twitter:card 以外は書かない（重複させない） -->
+    <meta name="twitter:card" content="summary_large_image" />
+
     <title>characterlive — 視聴者0人でも、ひとりじゃない。</title>
     <meta
       name="description"
       content="視聴者0人の配信でも、りんく・こん太・たぬ姉の3人がそばにいて勝手に喋ります。無料。開いた瞬間から動いているところを、このページでそのまま見られます。Kimito-Link Project。"
     />
-    <meta name="theme-color" content="#fffaf4" />
-    <link rel="icon" href="assets/brand/logo_kimito-link_RGB_favi_blue.png" />
+    <link rel="canonical" href="https://characterlive.link/" />
 
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="視聴者0人でも、ひとりじゃない。 — characterlive" />
-    <meta property="og:description" content="誰も来ない配信で、3人が勝手に喋り続けます。無料。" />
-    <meta property="og:image" content="assets/characters/link/link-yukkuri-face-base.png" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <!--
+      ===== favicon（2026年の最小構成）=====
+      ★Google は SVG 非対応。PNG(48x48超)を必ず置く。
+      ★apple-touch-icon は 180x180・透過なし（透過だと iOS が黒背景で合成する）。
+      ★mask-icon / msapplication-* / rel="shortcut icon" は死んでいるので入れない。
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon-96x96.png" type="image/png" sizes="96x96" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Discord の埋め込み左帯の色にも使われる（Chrome desktop / Firefox は無視する） -->
+    <meta name="theme-color" content="#fffaf4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1c4b7d" media="(prefers-color-scheme: dark)" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://characterlive.link/#org",
+            "name": "Kimito-Link Project",
+            "url": "https://characterlive.link/",
+            "logo": "https://characterlive.link/assets/brand/kimito-link-color.png"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://characterlive.link/#site",
+            "url": "https://characterlive.link/",
+            "name": "characterlive",
+            "inLanguage": "ja",
+            "publisher": { "@id": "https://characterlive.link/#org" }
+          },
+          {
+            "@type": "WebApplication",
+            "name": "characterlive",
+            "url": "https://characterlive.link/",
+            "applicationCategory": "EntertainmentApplication",
+            "operatingSystem": "Any",
+            "inLanguage": "ja",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" }
+          }
+        ]
+      }
+    </script>
 
     <style>
       /*
