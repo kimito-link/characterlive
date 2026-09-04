@@ -83,8 +83,14 @@ export async function think(input) {
   const system = buildSystemPrompt(charaId, { mode: input.mode || DEFAULT_MODE });
 
   // 直近のやりとりだけ渡す（内蔵AIは小型なので長い履歴は毒）
+  // ★履歴にも他の子の名前を出さない（プロンプト本体と同じ理由・Grokの指摘）
+  //   「こん太: いいね！」をそのまま見せると、モデルは"使ってよい名前"として受け取る。
+  //   誰が言ったかは「相手/あなた/仲間」で足りる（1〜2文の返事に人名は要らない）。
   const hist = (input.history || []).slice(-4)
-    .map((h) => `${h.who}: ${h.text}`)
+    .map((h) => {
+      if (h.who === '配信者') return `相手: ${h.text}`;
+      return h.who === persona.displayName ? `あなた: ${h.text}` : `仲間: ${h.text}`;
+    })
     .join('\n');
   const user = hist
     ? `これまでの会話:\n${hist}\n\n配信者:「${input.text}」\n\n${persona.displayName}として1〜2文で返して。`
