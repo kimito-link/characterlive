@@ -130,7 +130,7 @@
 
     <script type="module">
       import { startCharaLive } from './src/index.js';
-      import { think, pickResponder, probeAi } from './src/lib/charaBrain.js';
+      import { think, pickResponder, probeAi, startAiDownload } from './src/lib/charaBrain.js';
       import { PERSONAS } from './src/lib/charaPersona.v1.js';
       import { isVoicevoxAlive, synthesize, playWav } from './src/lib/charaVoice.js';
       import {
@@ -246,6 +246,33 @@
         // ★AIが準備中でも会話は成立する（決め打ちの返事＋声）。使えない、と誤解させない。
         if (!ai.ok && vv) {
           $('status').innerHTML += ' &nbsp;<span style="color:var(--muted)">※AIが準備中でも声は出ます</span>';
+        }
+        // ★'downloadable' は「待っても始まらない」状態。クリックが要る（実測で判明）。
+        //   ボタンを出さないと永久に準備中のままになる。
+        if (ai.state === 'downloadable') {
+          const btn = document.createElement('button');
+          btn.className = 'mini';
+          btn.textContent = 'AIを準備する';
+          btn.style.marginLeft = '8px';
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = '準備中… 0%';
+            const r = await startAiDownload((p) => {
+              btn.textContent = `準備中… ${Math.round(p * 100)}%`;
+            });
+            if (r.ok) {
+              btn.remove();
+              const again = await probeAi();
+              $('status').innerHTML =
+                `<span class="dot ${again.ok ? 'ok' : 'ng'}"></span>AI: ${again.ok ? '使える' : (again.reason || '使えない')}` +
+                ` &nbsp; <span class="dot ok"></span>声: VOICEVOX 起動中`;
+            } else {
+              btn.disabled = false;
+              btn.textContent = 'AIを準備する';
+              log('（AI準備）', r.reason || '開始できませんでした');
+            }
+          });
+          $('status').appendChild(btn);
         }
       })();
 

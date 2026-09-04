@@ -190,3 +190,40 @@ export function fallbackLine(charaId, said = '') {
   const list = table[charaId] || table.rinku;
   return list[Math.floor(Math.random() * list.length)];
 }
+
+/**
+ * ★AIモデルの取得を始める。**クリックの中から呼ぶこと。**
+ *
+ *   実測で判明した仕様(2026-09-04):
+ *     availability が 'downloadable' のとき create() を呼ぶと
+ *     NotAllowedError: Requires a user gesture when availability is
+ *     "downloading" or "downloadable".
+ *   → ★**待っていても永久に始まらない**。ユーザーの操作が要る。
+ *     「準備中です」と出すだけでは、いつまでも準備中のまま。
+ *     取得を始めるボタンを必ず用意する。
+ *
+ * @param {(loaded:number)=>void} [onProgress] 0..1
+ * @returns {Promise<{ok:boolean, reason?:string}>}
+ */
+export async function startAiDownload(onProgress) {
+  const LM = /** @type {any} */ (globalThis).LanguageModel;
+  if (!LM?.create) return { ok: false, reason: 'この端末では内蔵AIが使えません' };
+  try {
+    const session = await LM.create({
+      monitor(m) {
+        m.addEventListener('downloadprogress', (e) => {
+          try { onProgress?.(Number(e.loaded) || 0); } catch { /* no-op */ }
+        });
+      }
+    });
+    try { session.destroy?.(); } catch { /* no-op */ }
+    return { ok: true };
+  } catch (e) {
+    const msg = String(e?.message || e);
+    // ★クリック外から呼ばれた場合は、その旨をそのまま伝える(黙って失敗させない)
+    if (/user gesture/i.test(msg)) {
+      return { ok: false, reason: 'ボタンを押して開始してください（ブラウザの決まりです）' };
+    }
+    return { ok: false, reason: msg };
+  }
+}
