@@ -100,26 +100,53 @@ export function startCharaLive(deps) {
     typeof deps.resolveUrl === 'function' ? deps.resolveUrl : (/** @type {string} */ p) => p;
   const now = typeof deps.now === 'function' ? deps.now : () => Date.now();
   /*
-   * ★既定は必ず requestAnimationFrame(2026-08-25 の実害):
-   *   既定を setTimeout にしていたため、venueBar から requestFrame を渡していない本番では
-   *   【タブが背面でも止まらない・ブラウザの間引きも効かない】タイマーが回り続け、
-   *   ユーザー報告「押したらすぐ起動していたのに反応が悪くなった」の一因になった。
-   *   rAF ならタブが隠れれば自動で止まり、描画と歩調も合う。
+   * ★フレーム駆動は rAF と setTimeout の【併用】(2026-09-04 実測で確定)。
+   *
+   *   経緯: 一度「軽くするため」に rAF 一本にした。ところが
+   *   **rAF はタブが非アクティブだと完全に停止する**ため、実測すると
+   *   浮遊も自発発話も止まっていた(transform が固定・40秒で1回しか喋らない)。
+   *   配信で使う部品が「裏に回ると死ぬ」のは致命的:
+   *     - 配信者は別ウィンドウ(ゲーム/OBS)を前面にしている時間の方が長い
+   *     - OBS のブラウザソースも、条件によっては非可視扱いになりうる
+   *
+   *   ★だから: 見えている間は rAF(滑らかで軽い)、
+   *     隠れている間は setTimeout(止まらない)に自動で切り替える。
+   *   タイマー側は間隔を粗く(3倍)して、裏では CPU をほとんど使わない。
+   *   ★「軽さ」と「止まらないこと」は両立できる。どちらかを捨てない。
    */
   const view = doc.defaultView;
+  /** 裏に回っているときのフレーム間隔(ms)。粗くして CPU を食わせない。 */
+  const HIDDEN_FRAME_MS = Math.round(1000 / CHARA_LIVE_FPS) * 3;
+
+  /** いまページが隠れているか。 */
+  const isHidden = () => {
+    try {
+      return doc.visibilityState === 'hidden';
+    } catch {
+      return false;
+    }
+  };
+
   const raf =
     typeof deps.requestFrame === 'function'
       ? deps.requestFrame
-      : typeof view?.requestAnimationFrame === 'function'
-        ? view.requestAnimationFrame.bind(view)
-        : (/** @type {FrameRequestCallback} */ cb) =>
-            /** @type {any} */ (setTimeout(() => cb(now()), Math.round(1000 / CHARA_LIVE_FPS)));
+      : (/** @type {FrameRequestCallback} */ cb) => {
+          // ★隠れている間は rAF が来ないので、必ずタイマーで進める。
+          if (isHidden() || typeof view?.requestAnimationFrame !== 'function') {
+            return /** @type {any} */ (setTimeout(() => cb(now()), HIDDEN_FRAME_MS));
+          }
+          return view.requestAnimationFrame(cb);
+        };
   const caf =
     typeof deps.cancelFrame === 'function'
       ? deps.cancelFrame
-      : typeof view?.cancelAnimationFrame === 'function'
-        ? view.cancelAnimationFrame.bind(view)
-        : (/** @type {number} */ id) => clearTimeout(id);
+      : (/** @type {number} */ id) => {
+          // どちらで取った id かを覚えず、両方に投げる(取り違えても止まる)。
+          try {
+            if (typeof view?.cancelAnimationFrame === 'function') view.cancelAnimationFrame(id);
+          } catch { /* no-op */ }
+          clearTimeout(id);
+        };
   const getHeat = typeof deps.getHeatLevel === 'function' ? deps.getHeatLevel : () => 0;
   const backchannels =
     Array.isArray(deps.backchannels) && deps.backchannels.length

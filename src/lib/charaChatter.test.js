@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CHATTER_LINES,
   CHATTER_MIN_GAP_MS,
@@ -220,5 +223,32 @@ describe('1回ぶんの発話', () => {
     }
     // 5分で最低でも十数回は喋っている = 場が途切れない。
     expect(spoke).toBeGreaterThan(12);
+  });
+});
+
+/*
+ * ★2026-09-04 実測で踏んだ回帰:
+ *   フレーム駆動を requestAnimationFrame 一本にしたところ、
+ *   **タブが非アクティブだと rAF が完全に停止**するため、
+ *   浮遊も自発発話も止まっていた(実測: 40秒で1回しか喋らない・transform が固定)。
+ *   配信で使う部品が「裏に回ると死ぬ」のは致命的なので、
+ *   隠れている間はタイマーで進める作りを文字列で固定する。
+ *   (jsdom/happy-dom では visibilityState を切り替えても rAF の実挙動までは
+ *    再現できないため、実装の形を検査する = wiring テストの作法)
+ */
+describe('★裏に回っても止まらない(実測で踏んだ事故の固定)', () => {
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'charaLiveController.js'),
+    'utf8'
+  );
+
+  it('visibilityState を見て、隠れている間は setTimeout に切り替えている', () => {
+    expect(src, 'visibilityState を見ていない').toContain('visibilityState');
+    // rAF だけに頼っていないこと。
+    expect(src).toMatch(/isHidden\(\)[\s\S]{0,200}setTimeout/);
+  });
+
+  it('裏では間隔を粗くして CPU を食わせない', () => {
+    expect(src).toContain('HIDDEN_FRAME_MS');
   });
 });
