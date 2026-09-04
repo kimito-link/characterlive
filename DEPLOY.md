@@ -55,3 +55,16 @@ Cloudflare → マイプロフィール → APIトークン → テンプレー�
 
 ★既存の `CLOUDFLARE_API_TOKEN` では**動かない**（ゾーン一覧は見えるが DNS 操作が
 `10000: Authentication error` で弾かれる。実測）。
+
+## www は作らない（方針）
+
+★**www なしに統一**。`https://characterlive.link` が唯一の正。
+
+実現方法は **DNS に www を作らない**こと。`domain-connect.mjs` は既定で作らない。
+
+★**vercel.json の redirects で www を飛ばそうとしたが、効かなかった**（実測）:
+- www を Vercel プロジェクトに登録すると、その割り当てが redirects **より優先**され、
+  www が普通に 200 を返す
+- `vercel alias rm` で外すと 307 になるが、**再デプロイで復活する**
+→ ★DNS に無ければ悩む余地がない。**レコードごと消すのが正解。**
+  権威DNS で NXDOMAIN になることを確認済み。
