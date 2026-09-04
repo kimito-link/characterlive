@@ -1,0 +1,33 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+
+  "//": [
+    "characterlive.link の配信設定。",
+    "★ビルドしない静的サイト（LPは index.html 1枚 + src/ の ES module を直接読む）。",
+    "  追憶のきらめき(tsuioku-no-kirameki.com/vercel.json)と同じ流儀に合わせている。",
+    "★ルートは index.html(LP)。開発用のデモは /demo.html で見られる。"
+  ],
+
+  "buildCommand": null,
+  "installCommand": null,
+  "outputDirectory": ".",
+  "cleanUrls": true,
+
+  "headers": [
+    {
+      "//": "ES module を正しい MIME で返す（text/plain だとブラウザが実行を拒否して真っ白になる）。",
+      "source": "/src/(.*).js",
+      "headers": [{ "key": "Content-Type", "value": "text/javascript; charset=utf-8" }]
+    },
+    {
+      "//": "キャラ画像は差し替え頻度が低いので長めにキャッシュ（表示のちらつき防止にもなる）。",
+      "source": "/assets/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
+    },
+    {
+      "//": "LP 本体は毎回取りに来させる（文言を直したらすぐ反映させたいため）。",
+      "source": "/",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+    }
+  ]
+}
