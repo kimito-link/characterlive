@@ -70,6 +70,20 @@
       .opts label { display: inline-flex; align-items: center; gap: 5px; }
       select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 7px; }
       .hint { max-width: 720px; margin: 8px auto 0; font-size: 12px; color: var(--muted); }
+
+      /* ★声を選ぶ欄 */
+      .voices { max-width: 720px; margin: 12px auto 0; border-top: 1px solid var(--line); padding-top: 10px; }
+      .voices__head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+      .voices__list { display: grid; gap: 7px; }
+      .vrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .vrow > b { font-size: 13px; color: var(--navy-deep); min-width: 3.6em; }
+      .vrow select { flex: 1; min-width: 140px; max-width: 320px; }
+      /* ★試聴ボタンは必須。名前だけでは声を選べない */
+      .mini {
+        font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; min-height: 32px;
+        border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--navy);
+      }
+      .mini:disabled { opacity: .5; }
     </style>
   </head>
   <body>
@@ -87,6 +101,16 @@
         <input id="say" type="text" placeholder="話しかけてみてください（例: たぬ姉、今日うまくいかなかった）" autocomplete="off" />
         <button id="send">話す</button>
       </div>
+      <!-- ★声を選ぶ（Grokの「音声 Ara ＞」と同じ位置づけ・性格とは独立）
+           ユーザー指摘:「みるとどの音声入力かえらべるのがない」 -->
+      <div class="voices" id="voices" hidden>
+        <div class="voices__head">
+          <span>声</span>
+          <button type="button" id="voiceReset" class="mini">元に戻す</button>
+        </div>
+        <div class="voices__list" id="voiceList"></div>
+      </div>
+
       <div class="opts">
         <label>
           性格
@@ -109,6 +133,9 @@
       import { think, pickResponder, probeAi } from './src/lib/charaBrain.js';
       import { PERSONAS } from './src/lib/charaPersona.v1.js';
       import { isVoicevoxAlive, synthesize, playWav } from './src/lib/charaVoice.js';
+      import {
+        fetchVoiceChoices, loadVoices, saveVoices, resetVoices, sampleLine
+      } from './src/lib/charaVoicePicker.js';
 
       const $ = (id) => document.getElementById(id);
       const logEl = $('log');
@@ -147,6 +174,67 @@
 
       // ---- 使えるものを最初に測って表示する（推測で動かさない） ----
       let voiceOk = false;
+      /** 3人の声（配信者が選んだもの。localStorage に残る） */
+      let voices = loadVoices();
+
+      /**
+       * 声を選ぶ欄を作る。
+       * ★押したら鳴ることが必須。127スタイルあるが、名前を読んでも声は分からない。
+       */
+      async function buildVoicePicker() {
+        const choices = await fetchVoiceChoices();
+        if (!choices.length) return; // VOICEVOX未起動なら出さない（できないことを見せない）
+
+        const list = $('voiceList');
+        list.textContent = '';
+        for (const id of ['rinku', 'konta', 'tanunee']) {
+          const row = document.createElement('div');
+          row.className = 'vrow';
+
+          const name = document.createElement('b');
+          name.textContent = PERSONAS[id].displayName;
+
+          const sel = document.createElement('select');
+          for (const c of choices) {
+            const o = document.createElement('option');
+            o.value = String(c.styleId);
+            o.textContent = c.label;
+            sel.appendChild(o);
+          }
+          sel.value = String(voices[id]);
+
+          const play = document.createElement('button');
+          play.type = 'button';
+          play.className = 'mini';
+          play.textContent = '▶ 聞く';
+
+          // ★選んだ瞬間に鳴らす。選んで保存してから確かめる、では手間が多い
+          const preview = async () => {
+            play.disabled = true;
+            try {
+              const wav = await synthesize(sampleLine(id), { styleId: Number(sel.value) });
+              if (wav) { playing?.stop(); playing = playWav(wav); await playing.done; }
+            } finally { play.disabled = false; }
+          };
+          sel.addEventListener('change', () => {
+            voices[id] = Number(sel.value);
+            saveVoices(voices);
+            preview();
+          });
+          play.addEventListener('click', preview);
+
+          row.append(name, sel, play);
+          list.appendChild(row);
+        }
+
+        $('voiceReset').addEventListener('click', () => {
+          voices = resetVoices();
+          [...list.querySelectorAll('select')].forEach((sel, i) => {
+            sel.value = String(voices[['rinku', 'konta', 'tanunee'][i]]);
+          });
+        });
+        $('voices').hidden = false;
+      }
       (async () => {
         const [ai, vv] = await Promise.all([probeAi(), isVoicevoxAlive()]);
         voiceOk = vv;
@@ -154,6 +242,7 @@
           `<span class="dot ${ai.ok ? 'ok' : 'ng'}"></span>AI: ${ai.ok ? '使える' : (ai.reason || '使えない')}` +
           ` &nbsp; <span class="dot ${vv ? 'ok' : 'ng'}"></span>声: ${vv ? 'VOICEVOX 起動中' : 'VOICEVOX 未起動（文字だけ）'}`;
         if (!vv) $('voice').checked = false;
+        if (vv) buildVoicePicker();
         // ★AIが準備中でも会話は成立する（決め打ちの返事＋声）。使えない、と誤解させない。
         if (!ai.ok && vv) {
           $('status').innerHTML += ' &nbsp;<span style="color:var(--muted)">※AIが準備中でも声は出ます</span>';
@@ -190,7 +279,8 @@
 
         // ★口パクは「音が鳴った瞬間」に合わせる。文字表示に合わせると声より先に口が動く。
         if ($('voice').checked && voiceOk) {
-          const wav = await synthesize(res.text, persona.voice);
+          // ★配信者が選んだ声を使う（人格の既定より優先）
+          const wav = await synthesize(res.text, { ...persona.voice, styleId: voices[who] });
           if (wav) {
             playing?.stop();
             live.onStreamerAddressed({
