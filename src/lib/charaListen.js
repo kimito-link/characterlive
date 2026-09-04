@@ -178,7 +178,15 @@ export function createPushToTalk(opts) {
       rec.onerror = (ev) => {
         const err = String(ev?.error || '');
         // ★押している間の 'no-speech' は異常ではない（黙って押していただけ）
-        if (err === 'no-speech' || err === 'aborted') return;
+        /* ★聞き取れなかったことは伝える（2026-09-05・実害）
+           ユーザー報告:「いくら喋っても、自分のログがチャットに出ないことがある」
+           ★no-speech を黙って捨てていたため、
+             話したのに何も起きない＝壊れているように見えていた。 */
+        if (err === 'no-speech') {
+          opts.onError?.('聞き取れませんでした。もう一度どうぞ');
+          return;
+        }
+        if (err === 'aborted') return;   // 自分で止めたときなので異常ではない
         if (err === 'not-allowed' || err === 'service-not-allowed') {
           opts.onError?.('マイクの使用が許可されていません');
         } else {

@@ -248,6 +248,12 @@
       let lastSpeaker = null;
       /** 会話履歴（内蔵AIは小型なので直近だけ渡す） */
       const history = [];
+      /* ★話しかけられた言葉を捨てない（2026-09-05・実害）
+         返事の処理中に話した言葉が消えていた（実測で確認）。
+         ★人は返事を待たずに喋る。捨てずに順番待ちにする。 */
+      const pending = [];
+      let busy = false;
+
       /** 再生中の音声（次を鳴らす前に止める） */
       let playing = null;
 
@@ -434,12 +440,36 @@
         setState(null);
       }
 
+      /**
+       * ★話しかけの入口。処理中でも**捨てない**（順番待ちにする）。
+       *   ユーザー報告:「いくら喋ってもログに出ない」の対処。
+       */
       async function speak(text) {
         const t = String(text || '').trim();
         if (!t) return;
-        $('send').disabled = true;
+        // ★先にログへ出す。処理が遅れても「言ったことは残る」
+        /* ★ログは必ずここで1回だけ出す（2026-09-05）
+           ★speakOne 側でも出していたため、順番待ちの発言が2回出た（実測）。
+             「言った言葉が残る」ことが最優先なので、入口で確実に出す。 */
+        log('あなた', t + (busy ? '（順番待ち）' : ''));
+        pending.push(t);
+        if (busy) return;
+        busy = true;
+        try {
+          while (pending.length) {
+            await speakOne(pending.shift());
+          }
+        } finally {
+          busy = false;
+        }
+      }
+
+      async function speakOne(text) {
+        const t = String(text || '').trim();
+        if (!t) return;
+        // ★ボタンは無効にしない（無効の間に話した言葉が消えていたため・実測）
         $('say').value = '';
-        log('あなた', t);
+        // ★ログは入口で出し済み（ここで出すと二重になる）
         history.push({ who: '配信者', text: t });
 
         /* ★気持ちの話なら3人でリレーする(2026-09-05・デモ用)
@@ -448,7 +478,6 @@
              打ち明け・気持ち・変わりたい、が2つ以上そろったときだけ。 */
         if ($('mode').value === 'cheer' && isHeartTalk(t)) {
           await runRelay(t);
-          $('send').disabled = false;
           return;
         }
 
@@ -465,7 +494,6 @@
         if (!res.ok) {
           setState(null);
           log('（エラー）', res.reason || '返事を作れませんでした');
-          $('send').disabled = false;
           return;
         }
 
@@ -498,7 +526,6 @@
           live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000, charaId: who });
         }
         setState(null);
-        $('send').disabled = false;
       }
 
       /* ------------------------------------------------------------------ *
@@ -595,9 +622,17 @@
             if (st === 'listening') setState('listening', '聞いています…');
           },
           onError: (reason) => {
+            /* ★聞き取れなかっただけならマイクは止めない（2026-09-05）
+               ユーザー報告:「いくら喋っても自分のログが出ない」
+               ★聞き取り失敗のたびにマイクが切れると会話が続かない。
+                 ログには出す（黙って捨てない）が、聞き続ける。 */
+            log('（マイク）', reason);
+            if (reason.includes('聞き取れませんでした')) {
+              setState('listening', '聞いています…');
+              return;
+            }
             setState(null);
             $('mic').classList.remove('is-on');
-            log('（マイク）', reason);
           }
         });
 

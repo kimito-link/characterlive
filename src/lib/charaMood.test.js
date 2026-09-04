@@ -145,3 +145,23 @@ describe('★二人称の言い換え（小型モデルは指示を破るため�
     expect(enforcePersona('キミはすごい', 'konta')).toBe('キミはすごい');
   });
 });
+
+/* ★会話を続けるための性質（2026-09-05・実害から追加）
+   ユーザー報告:「連続して話しても会話が途切れる」
+               「いくら喋っても、自分のログがチャットに出ないことがある」 */
+import { HISTORY_TURNS } from './charaBrain.js';
+
+describe('★履歴を捨てない（「さっきの話」を指せるように）', () => {
+  it('10ターン保持する', () => {
+    expect(HISTORY_TURNS).toBeGreaterThanOrEqual(5);
+  });
+
+  it('★名指しでも履歴を捨てない（以前は空にしていた）', async () => {
+    // 実装が history を無条件に使っていることを、ソースで確認する
+    const src = await import('node:fs')
+      .then((m) => m.promises.readFile(new URL('./charaBrain.js', import.meta.url), 'utf-8'));
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    // 「address ? [] :」= 名指し時に履歴を捨てる形。これが復活したら落とす。
+    expect(code).not.toMatch(/address\s*\?\s*\[\]\s*:/);
+  });
+});

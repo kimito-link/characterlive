@@ -120,10 +120,22 @@ export async function think(input) {
   /* ★名指しされたときは履歴を渡さない。
      直前の1文は address の指示に入れてある。両方渡すと二重になり、
      小型モデルが要約を始める（Grokの指摘）。 */
-  const hist = (address ? [] : (input.history || [])).slice(-4)
+  /* ★履歴は捨てない（2026-09-05・実害「会話が続かない」）
+
+     ★以前は名指しのとき history を空にしていた。
+       「直前の1文は指示に入っているから二重になる」という理由だったが、
+       ★それだと**2つ前より古い話が全部消える**。
+       「さっきの話」を指せなくなり、毎回はじめましてになる。
+
+     Grokの助言「履歴は全部渡さない。4つだけ」は**1ターンの文脈**の話。
+     会話の連続性は別の話で、そこは残す必要がある。
+     → ★10ターン保持する。ただし1件ずつは短く切る（要約させないため）。 */
+  const hist = (input.history || []).slice(-HISTORY_TURNS)
     .map((h) => {
-      if (h.who === '配信者') return `相手: ${h.text}`;
-      return h.who === persona.displayName ? `あなた: ${h.text}` : `仲間: ${h.text}`;
+      // ★1件は28字まで。10ターン分を丸ごと入れるとプロンプト上限を超える。
+      const line = String(h.text || '').slice(0, 28);
+      if (h.who === '配信者') return `相手: ${line}`;
+      return h.who === persona.displayName ? `あなた: ${line}` : `仲間: ${line}`;
     })
     .join('\n');
   // ★「〜ですね」で受け流させない（ユーザー要望:「superficial な返答じゃなく」）
@@ -146,7 +158,12 @@ ${ask}`;
   const t0 = performance.now();
   let session;
   try {
-    session = await LM.create({ initialPrompts: [{ role: 'system', content: system }] });
+    /* ★セッションを使い回す（2026-09-05・実害「思考時間が長い」）
+       ★実測ログ: 10801ms → 1241ms → 1260ms → 1390ms
+         1回目だけ極端に遅く、以降は1.2〜1.4秒。
+         = 推論ではなく**セッション作成**が重い。
+       → 同じ system プロンプトなら作り直さない。 */
+    session = await acquireSession(LM, charaId, system);
     const raw = await session.prompt(user);
     // ★リレー中は1人1文に固定する（指示）。3人ぶん続くので長いと聞き疲れる。
     // ★リレー中と名指し時は1文に固定（Grok:「役割を変えるだけで、長さは揃える」）
@@ -155,9 +172,11 @@ ${ask}`;
     return { ok: true, text, ms: Math.round(performance.now() - t0) };
   } catch (e) {
     // ★ここでも黙らない（上と同じ理由）
+    releaseSession(charaId);   // ★壊れたセッションは捨てる（使い回すと二度と成功しない）
     return { ok: true, text: fallbackLine(charaId, input.text), ms: Math.round(performance.now() - t0), fallback: true, reason: String(e?.message || e) };
   } finally {
-    try { session?.destroy?.(); } catch { /* no-op */ }
+    /* ★ここで destroy しない（使い回すため・2026-09-05）
+       壊れた場合は catch 側の releaseSession で捨てる。 */
   }
 }
 
@@ -271,6 +290,39 @@ export function tidy(raw, maxSentences = MAX_SENTENCES) {
   //     声で読む以上、**文の数と全体の字数の両方**が要る。
   t = limitChars(t, MAX_CHARS);
   return t;
+}
+
+/**
+ * ★AIに渡す履歴のターン数（2026-09-05）。
+ *   短いと「さっきの話」を指せず、毎回はじめましてになる。
+ *   ★多すぎるとプロンプト上限（実測320〜350字）を超えるので、
+ *     1件28字に切ったうえで10ターン。
+ */
+export const HISTORY_TURNS = 10;
+
+/**
+ * ★キャラごとのセッション置き場（2026-09-05）。
+ *   毎回 create すると1回目が10秒以上かかる（実測）。
+ * @type {Map<string, {system:string, session:any}>}
+ */
+const SESSIONS = new Map();
+
+/** 使い回せるセッションを返す（無ければ作る）。 */
+async function acquireSession(LM, charaId, system) {
+  const held = SESSIONS.get(charaId);
+  if (held && held.system === system && held.session) return held.session;
+  // ★プロンプトが変わったら作り直す（前の人格のまま喋られると困る）
+  if (held?.session) { try { held.session.destroy?.(); } catch { /* no-op */ } }
+  const session = await LM.create({ initialPrompts: [{ role: 'system', content: system }] });
+  SESSIONS.set(charaId, { system, session });
+  return session;
+}
+
+/** 壊れたセッションを捨てる。 */
+export function releaseSession(charaId) {
+  const held = SESSIONS.get(charaId);
+  if (held?.session) { try { held.session.destroy?.(); } catch { /* no-op */ } }
+  SESSIONS.delete(charaId);
 }
 
 /** 返事の字数の上限。★声で読んで自然に聞ける長さ。 */
