@@ -110,7 +110,11 @@ export function charaLiveStageCss() {
   left: 50%;
   bottom: calc(100% + 6px);
   transform: translateX(-50%);
-  max-width: 190px;
+  /* ★48字が3行に収まる幅にする(2026-09-04・実害)
+     ユーザー報告:「ふきだしにおさまっていない」
+     ★190px だと1行あたり約15字しか入らず、48字で4行になって溢れていた。
+       返事は48字までに切っているので、その全部が見える幅が要る。 */
+  max-width: 240px;
   width: max-content;
   padding: 6px 10px;
   border-radius: 12px;
@@ -121,9 +125,12 @@ export function charaLiveStageCss() {
   font-size: 12px;
   line-height: 1.45;
   text-align: center;
-  /* 長文でも画面を覆わない。3 行で切る。 */
+  /* ★返事は48字までに切ってあるので、その全部が見える行数にする。
+     実測(2026-09-04): 43字+名前が 200px幅で5行になった。
+     ★3行のままだと、字数制限を守った返事でも末尾が切れる（実害の報告あり）。
+     6行は「長文でも画面を覆わない」ための最後の歯止め。 */
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 6;
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;

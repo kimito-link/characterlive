@@ -40,7 +40,11 @@
       @media (max-width: 560px) {
         #stage .nlcl-stage { gap: 10px; }
         #stage .nlcl-chara { width: 104px; height: 104px; }
-        #stage .nlcl-chara__bubble { max-width: 150px; }
+        /* ★狭い画面でも返事(最大48字)が収まる幅にする(2026-09-04・実害)
+           ユーザー報告:「ふきだしにおさまっていない」
+           ★150px だと1行約12字で、48字が5行になり溢れていた。
+             キャラを少し小さくしてでも、吹き出しの幅を優先する。 */
+        #stage .nlcl-chara__bubble { max-width: 200px; }
       }
 
       /* 会話ログ */
