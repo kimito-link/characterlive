@@ -12,7 +12,8 @@
     "domain": "node ../ai-hub/bin/domain-connect.mjs characterlive.link",
     "domain:check": "node ../ai-hub/bin/domain-connect.mjs characterlive.link --check",
     "ogp": "node scripts/build-ogp.mjs",
-    "icons": "python scripts/build-icons.py"
+    "icons": "python scripts/build-icons.py",
+    "talk": "node scripts/serve-demo.mjs"
   },
   "devDependencies": {
     "happy-dom": "^15.11.6",

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>characterlive — 話してみる</title>
+    <style>
+      /*
+       * ★この画面の目的（2026-09-04）
+       *   ユーザーの言葉:「動画がみたいのではない。実際に自分が会話して、
+       *   grokと会話するみたいにして同じ感覚が得られるかが重要。
+       *   今回の場合は、3人にいるので違う感覚かも」
+       *   → 読んで判断するのは無理。**触って確かめる**ための画面。
+       *   LP(index.html)とは別に置く。これは開発用。
+       */
+      :root {
+        color-scheme: light;
+        --navy: #1c4b7d; --navy-deep: #14375c; --orange: #c8721c;
+        --bg: #fffaf4; --bg2: #fff3e6; --panel: #fff; --ink: #2c2117;
+        --muted: #5f5346; --line: #e8dccd; --ok: #1a7f5a; --ng: #b3261e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+        font: 15px/1.8 system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+        display: flex; flex-direction: column;
+      }
+      header { padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+      header h1 { font-size: 15px; margin: 0; color: var(--navy-deep); }
+      header .st { font-size: 12px; color: var(--muted); margin-top: 3px; }
+      .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+      .dot.ok { background: var(--ok); } .dot.ng { background: var(--ng); }
+
+      /* キャラの舞台 */
+      #stage {
+        flex: 1; min-height: 230px; display: flex;
+        align-items: flex-end; justify-content: center; padding: 10px 10px 4px;
+        background: radial-gradient(ellipse 62% 40% at 50% 86%, rgba(28,75,125,.10), transparent 72%);
+      }
+      @media (max-width: 560px) {
+        #stage .nlcl-stage { gap: 10px; }
+        #stage .nlcl-chara { width: 104px; height: 104px; }
+        #stage .nlcl-chara__bubble { max-width: 150px; }
+      }
+
+      /* 会話ログ */
+      #log {
+        max-height: 34vh; overflow-y: auto; padding: 10px 18px;
+        border-top: 1px solid var(--line); background: var(--bg2);
+      }
+      .msg { margin: 0 0 8px; font-size: 14px; }
+      .msg b { color: var(--navy-deep); }
+      .msg.me { color: var(--muted); }
+      .msg .ms { font-size: 11px; color: var(--muted); margin-left: 6px; }
+
+      /* 入力 */
+      .bar { padding: 12px 18px 18px; background: var(--panel); border-top: 1px solid var(--line); }
+      .row { display: flex; gap: 8px; max-width: 720px; margin: 0 auto; }
+      input[type="text"] {
+        flex: 1; font: inherit; padding: 12px 14px;
+        border: 1.5px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--navy); border-color: transparent; }
+      button {
+        font: inherit; font-weight: 700; padding: 12px 20px; border: 0; border-radius: 10px;
+        background: var(--orange); color: #fff; cursor: pointer; min-height: 44px;
+      }
+      button:disabled { opacity: .5; cursor: default; }
+      .opts { display: flex; gap: 14px; flex-wrap: wrap; max-width: 720px; margin: 10px auto 0; font-size: 13px; color: var(--muted); }
+      .opts label { display: inline-flex; align-items: center; gap: 5px; }
+      select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 7px; }
+      .hint { max-width: 720px; margin: 8px auto 0; font-size: 12px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>characterlive — 話してみる（開発用）</h1>
+      <div class="st" id="status">確認中…</div>
+    </header>
+
+    <main id="stage"></main>
+
+    <div id="log"></div>
+
+    <div class="bar">
+      <div class="row">
+        <input id="say" type="text" placeholder="話しかけてみてください（例: たぬ姉、今日うまくいかなかった）" autocomplete="off" />
+        <button id="send">話す</button>
+      </div>
+      <div class="opts">
+        <label>
+          性格
+          <select id="mode">
+            <option value="cheer">応援</option>
+            <option value="chat">ゆるい雑談</option>
+            <option value="blunt">遠慮なし</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="voice" checked /> 声を出す</label>
+        <label><input type="checkbox" id="chatter" /> 勝手に喋る</label>
+      </div>
+      <p class="hint">
+        ★名前を呼ぶとその子が答えます（りんく / こん太 / たぬ姉）。呼ばなければ誰かが答えます。
+      </p>
+    </div>
+
+    <script type="module">
+      import { startCharaLive } from './src/index.js';
+      import { think, pickResponder, probeAi } from './src/lib/charaBrain.js';
+      import { PERSONAS } from './src/lib/charaPersona.v1.js';
+      import { isVoicevoxAlive, synthesize, playWav } from './src/lib/charaVoice.js';
+
+      const $ = (id) => document.getElementById(id);
+      const logEl = $('log');
+
+      // ★自発発話は既定オフ。まず「話しかけたら返る」だけを確かめたいため。
+      const live = startCharaLive({
+        doc: document,
+        mount: $('stage'),
+        resolveUrl: (p) => p,
+        getHeatLevel: () => 0.35,
+        chatter: false
+      });
+
+      /** 直前に喋った子（同じ子が続けて答えないように） */
+      let lastSpeaker = null;
+      /** 会話履歴（内蔵AIは小型なので直近だけ渡す） */
+      const history = [];
+      /** 再生中の音声（次を鳴らす前に止める） */
+      let playing = null;
+
+      function log(who, text, ms) {
+        const p = document.createElement('p');
+        p.className = 'msg' + (who === 'あなた' ? ' me' : '');
+        p.innerHTML = `<b></b> <span></span>`;
+        p.querySelector('b').textContent = who + '：';
+        p.querySelector('span').textContent = text;
+        if (ms != null) {
+          const s = document.createElement('span');
+          s.className = 'ms';
+          s.textContent = `${ms}ms`;
+          p.appendChild(s);
+        }
+        logEl.appendChild(p);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      // ---- 使えるものを最初に測って表示する（推測で動かさない） ----
+      let voiceOk = false;
+      (async () => {
+        const [ai, vv] = await Promise.all([probeAi(), isVoicevoxAlive()]);
+        voiceOk = vv;
+        $('status').innerHTML =
+          `<span class="dot ${ai.ok ? 'ok' : 'ng'}"></span>AI: ${ai.ok ? '使える' : (ai.reason || '使えない')}` +
+          ` &nbsp; <span class="dot ${vv ? 'ok' : 'ng'}"></span>声: ${vv ? 'VOICEVOX 起動中' : 'VOICEVOX 未起動（文字だけ）'}`;
+        if (!vv) $('voice').checked = false;
+      })();
+
+      async function speak(text) {
+        const t = String(text || '').trim();
+        if (!t) return;
+        $('send').disabled = true;
+        $('say').value = '';
+        log('あなた', t);
+        history.push({ who: '配信者', text: t });
+
+        const who = pickResponder(t, lastSpeaker);
+        const persona = PERSONAS[who];
+
+        // ★考えている間は「…」を出す（間が空く理由を見せる）
+        live.beginThinking({ charaId: who });
+
+        const res = await think({ charaId: who, text: t, mode: $('mode').value, history });
+        live.endThinking();
+
+        if (!res.ok) {
+          log('（エラー）', res.reason || '返事を作れませんでした');
+          $('send').disabled = false;
+          return;
+        }
+
+        lastSpeaker = who;
+        history.push({ who: persona.displayName, text: res.text });
+        log(persona.displayName, res.text, res.ms);
+
+        // ★口パクは「音が鳴った瞬間」に合わせる。文字表示に合わせると声より先に口が動く。
+        if ($('voice').checked && voiceOk) {
+          const wav = await synthesize(res.text, persona.voice);
+          if (wav) {
+            playing?.stop();
+            live.onStreamerAddressed({
+              prompt: t,
+              answer: res.text,
+              durationMs: 60000 // 音が終わったら閉じるので長めに取る
+            });
+            playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
+            await playing.done;
+            live.onCommentSpokenEnd();
+          } else {
+            live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000 });
+          }
+        } else {
+          live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000 });
+        }
+        $('send').disabled = false;
+        $('say').focus();
+      }
+
+      $('send').addEventListener('click', () => speak($('say').value));
+      $('say').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') speak($('say').value);
+      });
+      $('chatter').addEventListener('change', (e) => live.setChatter(e.target.checked));
+
+      globalThis.__live = live;
+    </script>
+  </body>
+</html>
