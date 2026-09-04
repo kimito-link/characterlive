@@ -6,17 +6,14 @@
     <title>characterlive — 視聴者0人でも、ひとりじゃない。</title>
     <meta
       name="description"
-      content="視聴者0人の配信でも、りんく・こん太・たぬ姉の3人がそばにいて勝手に喋ります。無料。開いた瞬間から動いているところを、このページでそのまま見られます。"
+      content="視聴者0人の配信でも、りんく・こん太・たぬ姉の3人がそばにいて勝手に喋ります。無料。開いた瞬間から動いているところを、このページでそのまま見られます。Kimito-Link Project。"
     />
-    <meta name="theme-color" content="#0f1720" />
+    <meta name="theme-color" content="#fffaf4" />
+    <link rel="icon" href="assets/brand/kimito-maru-black.png" />
 
-    <!-- OGP: SNSに貼られたときに何のページか一目で分かるようにする -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="視聴者0人でも、ひとりじゃない。 — characterlive" />
-    <meta
-      property="og:description"
-      content="誰も来ない配信で、3人が勝手に喋り続けます。無料。"
-    />
+    <meta property="og:description" content="誰も来ない配信で、3人が勝手に喋り続けます。無料。" />
     <meta property="og:image" content="assets/characters/link/link-yukkuri-face-base.png" />
     <meta name="twitter:card" content="summary_large_image" />
 
@@ -26,21 +23,23 @@
        *   お客様が買うのは「実際の価値」ではなく【買う前に認識できる価値】。
        *   この製品は【見た目】のシグナルが最強（3人が実際に動く）ので、
        *   説明を読ませるより先に【動いているものを見せる】。
-       *   → だからファーストビューが実物のデモになっている。
        *
-       * ★やらないこと: 機能の羅列 / 誇張した実績 / 偽の口コミ。
+       * ★配色は Kimito-Link のロゴ（紺 #1c4b7d / オレンジ #c8721c）に合わせた明るい地。
+       *   以前は暗い地にしていたが、ロゴが濃紺で沈むため変更した。
+       *   参照: tsuioku-no-kirameki.com のLP（明るい地・茶系の文字）。
        */
       :root {
-        color-scheme: dark;
-        --bg: #0f1720;
-        --bg2: #141d28;
-        --panel: #1a2530;
-        --ink: #eaf1f8;
-        --muted: #9db0c2;
-        --line: #2b3947;
-        --accent: #ffb3c7; /* 桜ピンク（追憶のきらめきと同じ主アクセント） */
-        --accent-ink: #2a1b21;
-        --ok: #7ee0a8;
+        color-scheme: light;
+        --navy: #1c4b7d;
+        --navy-deep: #14375c;
+        --orange: #c8721c;
+        --bg: #fffaf4;
+        --bg2: #fff3e6;
+        --panel: #ffffff;
+        --ink: #2c2117;
+        --muted: #5f5346;
+        --line: #e8dccd;
+        --ok: #1a7f5a;
       }
       * { box-sizing: border-box; }
       html { -webkit-text-size-adjust: 100%; }
@@ -49,186 +48,151 @@
         background: var(--bg);
         color: var(--ink);
         font:
-          16px/1.85 system-ui,
-          "Segoe UI",
-          "Hiragino Kaku Gothic ProN",
-          "Noto Sans JP",
-          sans-serif;
+          16px/1.9 system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
         overflow-wrap: anywhere;
       }
-      .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+
+      /* ---------- ヘッダー ---------- */
+      .site-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; padding: 14px 20px; max-width: 1040px; margin: 0 auto;
+      }
+      .site-head img { height: 30px; width: auto; display: block; }
+      .site-head .tag { font-size: 12.5px; color: var(--muted); }
 
       /* ---------- ファーストビュー ---------- */
       .hero {
-        padding: 44px 0 8px;
-        text-align: center;
-        background:
-          radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 179, 199, 0.13), transparent 70%);
+        padding: 26px 0 6px; text-align: center;
+        background: radial-gradient(ellipse 80% 62% at 50% 0%, #ffe9d2, transparent 72%);
       }
       .hero h1 {
-        font-size: clamp(26px, 7.4vw, 40px);
-        line-height: 1.4;
-        margin: 0 0 10px;
-        letter-spacing: 0.01em;
+        font-size: clamp(27px, 7.6vw, 42px); line-height: 1.42;
+        margin: 0 0 12px; letter-spacing: 0.01em; color: var(--navy-deep);
       }
-      .hero h1 b { color: var(--accent); font-weight: inherit; }
-      .hero .sub {
-        margin: 0 auto;
-        max-width: 30em;
-        color: var(--muted);
-        font-size: clamp(14px, 3.7vw, 16px);
-      }
+      .hero h1 b { color: var(--orange); font-weight: inherit; }
+      .hero .sub { margin: 0 auto; max-width: 32em; color: var(--muted); font-size: clamp(14px, 3.7vw, 16.5px); }
 
-      /*
-       * ★デモの舞台。ここに3人が入る（mount 先）。
-       *   body 直下ではなくこの箱に入れる —— 移植元では body 直下に置いて
-       *   全画面要素に覆われ、一度も見えなかった実績がある。
-       */
+      /* ★キャラの mount 先。body 直下ではなくこの箱に入れる */
       #stage {
-        position: relative;
-        min-height: 210px;
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
+        position: relative; min-height: 210px;
+        display: flex; align-items: flex-end; justify-content: center;
         padding: 8px 8px 6px;
-        background:
-          radial-gradient(ellipse 66% 42% at 50% 84%, rgba(140, 180, 220, 0.16), transparent 72%);
+        background: radial-gradient(ellipse 62% 40% at 50% 86%, rgba(28, 75, 125, 0.1), transparent 72%);
       }
       /*
-       * ★スマホ対応（実測で判明した実害・2026-09-04）
-       *   部品の既定は 1人160px + gap24 × 2 = 【528px】必要。
-       *   375pxの画面（左右padding込みで実質343px）では **185pxはみ出す**。
-       *   → 部品側のCSSは他の用途でも使うので触らず、
-       *     LP側で「狭い画面のときだけ縮める」。3人が並ぶ絵は崩したくないので
-       *     縦積みにはせず、等倍で小さくする（scaleではなく実寸を変える＝ぼけない）。
+       * ★スマホ対応（実測で判明した実害）
+       *   部品の既定は 1人160px + gap24×2 =【528px】必要。
+       *   375px画面（実質343px）では185pxはみ出す。吹き出しも190px固定で画面外に出る。
+       *   → 部品側CSSは他用途でも使うので触らず、LP側で狭い画面だけ縮める。
        */
       @media (max-width: 560px) {
         #stage { min-height: 168px; }
         #stage .nlcl-stage { gap: 10px; }
         #stage .nlcl-chara { width: 104px; height: 104px; }
+        #stage .nlcl-chara__bubble { max-width: 150px; }
       }
       @media (max-width: 400px) {
         #stage { min-height: 148px; }
         #stage .nlcl-stage { gap: 6px; }
         #stage .nlcl-chara { width: 92px; height: 92px; }
-      }
-      /*
-       * ★吹き出しも狭い画面ではみ出す（実測: 375pxで左端が -5px）。
-       *   部品の既定は max-width:190px 固定。両端のキャラの吹き出しが画面外に出る。
-       *   → 画面幅に応じて上限を下げる。文字は折り返すので読める。
-       */
-      @media (max-width: 560px) {
-        #stage .nlcl-chara__bubble { max-width: 150px; }
-      }
-      @media (max-width: 400px) {
         #stage .nlcl-chara__bubble { max-width: 124px; font-size: 11.5px; }
       }
-      .stage-note {
-        text-align: center;
-        color: var(--muted);
-        font-size: 12.5px;
-        margin: 0 0 26px;
-      }
+      .stage-note { text-align: center; color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
       .stage-note .live {
-        display: inline-block;
-        width: 7px; height: 7px; border-radius: 50%;
-        background: var(--ok);
-        margin-right: 6px;
-        vertical-align: baseline;
+        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+        background: var(--ok); margin-right: 6px;
       }
 
-      /* ---------- 共通ブロック ---------- */
-      section { padding: 34px 0; border-top: 1px solid var(--line); }
-      h2 {
-        font-size: clamp(19px, 5vw, 23px);
-        margin: 0 0 16px;
-        line-height: 1.5;
-      }
+      /* ---------- 共通 ---------- */
+      section { padding: 40px 0; border-top: 1px solid var(--line); }
+      h2 { font-size: clamp(20px, 5.2vw, 25px); margin: 0 0 8px; line-height: 1.5; color: var(--navy-deep); }
+      .lead { color: var(--muted); font-size: 14.5px; margin: 0 0 20px; }
       p { margin: 0 0 15px; }
       .muted { color: var(--muted); }
       .small { font-size: 13.5px; }
 
-      /* 配信者の実際の声（引用） */
-      .voices { display: grid; gap: 12px; margin: 0 0 18px; }
       blockquote {
-        margin: 0;
-        padding: 14px 16px;
-        background: var(--bg2);
-        border-left: 3px solid var(--line);
-        border-radius: 0 10px 10px 0;
-        font-size: 14.5px;
-        color: #dbe6f1;
+        margin: 0 0 12px; padding: 14px 16px; background: var(--panel);
+        border-left: 4px solid var(--orange); border-radius: 0 10px 10px 0;
+        font-size: 14.5px; box-shadow: 0 1px 3px rgba(44, 33, 23, 0.06);
       }
+      blockquote cite { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); font-style: normal; }
 
-      /* 3人の紹介 */
+      /* 3人 */
       .cast { display: grid; gap: 12px; }
       .member {
-        display: flex;
-        gap: 14px;
-        align-items: center;
-        background: var(--bg2);
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 13px 15px;
+        display: flex; gap: 14px; align-items: center; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
       }
-      .member .face {
-        position: relative;
-        flex: 0 0 auto;
-        width: 62px; height: 62px;
-      }
-      .member .face img {
-        position: absolute; inset: 0;
-        width: 100%; height: 100%;
-        object-fit: contain;
-      }
-      .member .name { font-weight: 700; margin: 0 0 2px; }
+      .member .face { position: relative; flex: 0 0 auto; width: 66px; height: 66px; }
+      .member .face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      .member .name { font-weight: 700; margin: 0 0 2px; color: var(--navy-deep); }
       .member .role { margin: 0; font-size: 13.5px; color: var(--muted); }
+      .member .line { margin: 6px 0 0; font-size: 13.5px; color: var(--ink); }
+
+      /* 仕組み */
+      .steps { display: grid; gap: 12px; counter-reset: s; }
+      .step {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+        padding: 14px 16px 14px 52px; position: relative;
+      }
+      .step::before {
+        counter-increment: s; content: counter(s);
+        position: absolute; left: 15px; top: 15px;
+        width: 24px; height: 24px; border-radius: 50%;
+        background: var(--navy); color: #fff;
+        font-size: 13px; font-weight: 700; line-height: 24px; text-align: center;
+      }
+      .step b { display: block; color: var(--navy-deep); margin-bottom: 2px; }
+      .step span { font-size: 13.5px; color: var(--muted); }
+
+      /* 表 */
+      .tbl { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--panel); }
+      .tbl th, .tbl td { border: 1px solid var(--line); padding: 9px 11px; text-align: left; vertical-align: top; }
+      .tbl th { background: var(--bg2); font-weight: 700; color: var(--navy-deep); white-space: nowrap; }
+      .scroll-x { overflow-x: auto; }
 
       /* 正直な但し書き */
-      .honest {
-        background: var(--bg2);
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 16px 18px;
-      }
+      .honest { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
       .honest ul { margin: 0; padding-left: 1.2em; }
-      .honest li { margin: 0 0 8px; font-size: 14.5px; }
+      .honest li { margin: 0 0 9px; font-size: 14.5px; }
       .honest li:last-child { margin-bottom: 0; }
 
-      /* ---------- 登録 ---------- */
+      /* Q&A */
+      details {
+        background: var(--panel); border: 1px solid var(--line);
+        border-radius: 12px; padding: 12px 15px; margin: 0 0 10px;
+      }
+      summary { cursor: pointer; font-weight: 700; color: var(--navy-deep); font-size: 14.5px; }
+      details p { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+
+      /* CTA */
       .cta { text-align: center; padding-bottom: 46px; }
       .btn {
-        display: inline-block;
-        background: var(--accent);
-        color: var(--accent-ink);
-        font-weight: 700;
-        font-size: 17px;
-        text-decoration: none;
-        padding: 16px 30px;
-        border-radius: 999px;
-        border: 2px solid rgba(255, 255, 255, 0.85);
-        box-shadow: 0 6px 20px rgba(255, 179, 199, 0.22);
-        min-height: 44px;
+        display: inline-block; background: var(--orange); color: #fff;
+        font-weight: 700; font-size: 17px; text-decoration: none;
+        padding: 16px 32px; border-radius: 999px; min-height: 44px;
+        box-shadow: 0 6px 18px rgba(200, 114, 28, 0.28);
       }
       .btn:hover { filter: brightness(1.06); }
       .cta .note { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
 
-      footer {
-        border-top: 1px solid var(--line);
-        padding: 22px 0 34px;
-        text-align: center;
-        color: var(--muted);
-        font-size: 12.5px;
-      }
-      footer a { color: var(--muted); }
+      footer { border-top: 1px solid var(--line); padding: 24px 0 36px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--bg2); }
+      footer img { height: 26px; width: auto; margin-bottom: 8px; }
+      footer a { color: var(--navy); }
 
-      /* 動きを減らす設定を尊重（部品側も同じ判定を持っている） */
       @media (prefers-reduced-motion: reduce) {
         * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
       }
     </style>
   </head>
   <body>
+    <header class="site-head">
+      <img src="assets/brand/kimito-link-color.png" alt="Kimito-Link Project（キミトリンク）" />
+      <span class="tag">characterlive</span>
+    </header>
+
     <!-- ================= ファーストビュー ================= -->
     <div class="hero">
       <div class="wrap">
@@ -240,24 +204,20 @@
       </div>
     </div>
 
-    <!-- ★キャラはここに入る（mount 先）。訪問者は何も押さなくていい。 -->
     <main id="stage" aria-label="3人のキャラクターが浮かんで会話しているデモ"></main>
-    <p class="stage-note">
-      <span class="live" aria-hidden="true"></span>操作していません。勝手に喋っています。
-    </p>
+    <p class="stage-note"><span class="live" aria-hidden="true"></span>操作していません。勝手に喋っています。</p>
 
     <!-- ================= 痛み ================= -->
     <section>
       <div class="wrap">
         <h2>2時間しゃべって、コメント0件。</h2>
-        <div class="voices">
-          <blockquote>「2時間配信して、コメントがゼロだった…虚しい。やめたくなる。」</blockquote>
-          <blockquote>「視聴者が0人の画面に向かって話し続けるのが辛くなってきました」</blockquote>
-        </div>
+        <p class="lead">実際に配信している人の言葉です。</p>
+        <blockquote>「2時間配信して、コメントがゼロだった…虚しい。やめたくなる。」</blockquote>
+        <blockquote>「視聴者が0人の画面に向かって話し続けるのが辛くなってきました」</blockquote>
         <p class="muted small">
-          伸び悩む配信者への定番の助言は、いつも同じです。
-          <strong>「絶対に無言になってはいけない」</strong>。
+          伸び悩む配信者への定番の助言は、いつも同じです。<strong>「絶対に無言になってはいけない」</strong>。
           ——分かっていても、誰も居ない部屋でひとりで喋り続けるのは、しんどい。
+          <br />characterlive は、その助言を肩代わりします。
         </p>
       </div>
     </section>
@@ -266,21 +226,33 @@
     <section>
       <div class="wrap">
         <h2>その部屋を、うるさくします。</h2>
-        <p>
-          3人が勝手に喋ります。あなたが黙っていても、間が空きません。
-          相槌を打ち、勝手に盛り上がり、時々あなたをいじります。
-        </p>
-        <p class="muted small">
-          視聴者0人の表示はそのままです。数字は増えません。
-          増えるのは、<strong>返事が返ってくること</strong>だけです。
-        </p>
+        <p class="lead">3人が勝手に喋ります。あなたが黙っていても、間が空きません。</p>
+        <div class="steps">
+          <div class="step">
+            <b>開くだけ。設定はいりません</b>
+            <span>ブラウザで開けば、その瞬間から3人がそこにいます。ボタンを押す必要はありません。</span>
+          </div>
+          <div class="step">
+            <b>黙っていても、間が空きません</b>
+            <span>沈黙が続くと、誰かが話しかけます。「絶対に無言になってはいけない」を自動でやります。</span>
+          </div>
+          <div class="step">
+            <b>名前を呼べば、その子が答えます</b>
+            <span>「たぬ姉、どう思う？」と聞けば、たぬ姉が返します。呼ばなくても誰かが拾います。</span>
+          </div>
+          <div class="step">
+            <b>たまに、遠慮なく言います</b>
+            <span>ずっと褒めるだけだと飽きます。時々ツッコみます。ただし最後は味方です。</span>
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- ================= 3人が誰か ================= -->
+    <!-- ================= 3人 ================= -->
     <section>
       <div class="wrap">
         <h2>3人います。</h2>
+        <p class="lead">全員が同じことを言っても意味がないので、役割を分けています。</p>
         <div class="cast">
           <div class="member">
             <div class="face">
@@ -290,7 +262,8 @@
             </div>
             <div>
               <p class="name">りんく</p>
-              <p class="role">何があっても味方。「4回目でもちゃんと聞くのだ」</p>
+              <p class="role">何があっても味方。否定しません</p>
+              <p class="line">「ボクは4回目でもちゃんと聞くのだ！」</p>
             </div>
           </div>
           <div class="member">
@@ -301,7 +274,8 @@
             </div>
             <div>
               <p class="name">こん太</p>
-              <p class="role">素直で元気。まっすぐ褒めて、余計なことも言う</p>
+              <p class="role">素直で元気。まっすぐ褒めます</p>
+              <p class="line">「3回目ならボクもう覚えたよ！次はいっしょに言えるよ！」</p>
             </div>
           </div>
           <div class="member">
@@ -312,32 +286,118 @@
             </div>
             <div>
               <p class="name">たぬ姉</p>
-              <p class="role">遠慮なくツッコむ。でも最後は肯定してくれる</p>
+              <p class="role">遠慮なくツッコむ。でも最後は肯定します</p>
+              <p class="line">「そりゃそうよ。あなた今日、同じ話もう3回してるもの」</p>
             </div>
           </div>
         </div>
       </div>
     </section>
 
+    <!-- ================= 他との違い ================= -->
+    <section>
+      <div class="wrap">
+        <h2>「AIアシスタント」とは、違うものです。</h2>
+        <p class="lead">正解を教えてくれる道具は、もう足りています。</p>
+        <div class="scroll-x">
+          <table class="tbl">
+            <tr>
+              <th></th>
+              <th>ふつうのAI</th>
+              <th>characterlive</th>
+            </tr>
+            <tr>
+              <th>役割</th>
+              <td>正しい答えを出す</td>
+              <td>そばにいる</td>
+            </tr>
+            <tr>
+              <th>あなたが迷った時</th>
+              <td>「やめておくのが賢明です」</td>
+              <td>「やってみればいいのだ」</td>
+            </tr>
+            <tr>
+              <th>口調</th>
+              <td>丁寧・真面目</td>
+              <td>ため口・たまに毒舌</td>
+            </tr>
+            <tr>
+              <th>人数</th>
+              <td>1人</td>
+              <td>3人（勝手に掛け合います）</td>
+            </tr>
+          </table>
+        </div>
+        <p class="muted small">
+          真面目なAIに相談したら正論で殴られて凹んだ、という話はよく聞きます。
+          この3人は、正論を言う係ではありません。
+        </p>
+      </div>
+    </section>
+
     <!-- ================= 正直な但し書き ================= -->
     <section>
       <div class="wrap">
-        <h2>先に言っておきます。</h2>
+        <h2>先に、正直に書きます。</h2>
+        <p class="lead">良いところだけ書いても、使った後でがっかりさせるだけなので。</p>
         <div class="honest">
           <ul>
-            <li><strong>視聴者数は偽りません。</strong>0人は0人のまま表示されます。</li>
-            <li><strong>人間のふりをしません。</strong>3人はキャラクターとして喋ります。</li>
+            <li><strong>視聴者数は偽りません。</strong>0人は0人のまま表示されます。数字は増えません。</li>
+            <li><strong>人間のふりをしません。</strong>3人はキャラクターとして喋ります。視聴者を騙しません。</li>
             <li>
               <strong>配信に映すかは、あなたが決めます。</strong>
               既定では<strong>あなたにしか見えません</strong>。視聴者には出ません。
             </li>
+            <li><strong>あなたのパソコンの中だけで動きます。</strong>会話を外に送りません。</li>
             <li>
-              <strong>あなたのパソコンの中だけで動きます。</strong>
-              会話は外に送りません。
+              <strong>まだ作っている途中です。</strong>
+              いま動くのは「3人がいて、勝手に喋る」ところまで。
+              声（VOICEVOX）と、あなたの声を聞いて答える機能は、これから足します。
             </li>
             <li><strong>無料です。</strong></li>
           </ul>
         </div>
+      </div>
+    </section>
+
+    <!-- ================= Q&A ================= -->
+    <section>
+      <div class="wrap">
+        <h2>よくある質問</h2>
+        <details>
+          <summary>視聴者に「AIを使ってる」と思われませんか？</summary>
+          <p>
+            既定では画面に出ません。あなたにしか見えないので、視聴者は気づきません。
+            出したい人だけ、配信に映せます。どちらにするかはあなたが選べます。
+          </p>
+        </details>
+        <details>
+          <summary>配信が重くなりませんか？</summary>
+          <p>
+            画面を閉じている間は動きを止めます。絵は軽い版に差し替えて、
+            読み込みを 9.6MB → 303KB（約97%減）にしてあります。
+          </p>
+        </details>
+        <details>
+          <summary>マイクは必要ですか？</summary>
+          <p>
+            いまは不要です。開くだけで3人が喋ります。
+            将来「あなたの声を聞いて答える」機能を足しますが、そのときも使うかどうかは選べます。
+          </p>
+        </details>
+        <details>
+          <summary>ニコ生専用ですか？</summary>
+          <p>
+            いいえ。ブラウザで開くだけなので、どの配信サイトでも、配信していなくても使えます。
+          </p>
+        </details>
+        <details>
+          <summary>3人の性格は変わりますか？</summary>
+          <p>
+            勝手には変えません。使っている途中で性格が別人になると悲しいので、
+            変える場合も元の3人を残します。
+          </p>
+        </details>
       </div>
     </section>
 
@@ -346,7 +406,8 @@
       <div class="wrap">
         <h2>できたら、お知らせします。</h2>
         <p class="muted small">
-          いま作っています。声（VOICEVOX）で喋る版ができたら、最初にご連絡します。
+          声で喋る版ができたら、最初にご連絡します。<br />
+          「こんな子がほしい」「この一言が刺さった」も、そこで聞かせてください。
         </p>
         <p>
           <a class="btn" href="https://lin.ee/oY28tzU?from=characterlive-lp" target="_blank" rel="noopener" data-cta="line">
@@ -359,17 +420,18 @@
 
     <footer>
       <div class="wrap">
+        <img src="assets/brand/kimito-link-color.png" alt="Kimito-Link Project" />
         <p>
-          作っているのは、Chrome ウェブストアで公開中の拡張
-          <a
-            href="https://chromewebstore.google.com/detail/cjbabignmmodaickpeckiojjabnlogdb"
-            target="_blank"
-            rel="noopener"
+          Chrome ウェブストアで公開中の
+          <a href="https://chromewebstore.google.com/detail/cjbabignmmodaickpeckiojjabnlogdb" target="_blank" rel="noopener"
             >「君斗りんくの追憶のきらめき」</a
           >
-          と同じ作者です。
+          と同じ作者が作っています。
         </p>
-        <p>音声は VOICEVOX を使う予定です。／ りんく・こん太・たぬ姉はオリジナルキャラクターです。</p>
+        <p>
+          音声は VOICEVOX を使う予定です。／
+          りんく・こん太・たぬ姉は Kimito-Link Project のオリジナルキャラクターです。
+        </p>
       </div>
     </footer>
 
@@ -380,26 +442,20 @@
        */
       import { startCharaLive } from './src/index.js';
 
-      const stage = document.getElementById('stage');
-
-      // ★音は鳴らさない（勝手に鳴ると閉じられる）。この部品は元々無音。
       const live = startCharaLive({
         doc: document,
-        mount: stage,
-        // LP はリポ直下から開くので、パスはそのまま使える。
+        mount: document.getElementById('stage'),
         resolveUrl: (p) => p,
-        // 少し高めの「盛り上がり」で、表情が動きやすい状態にしておく。
         getHeatLevel: () => 0.35
       });
 
-      // ★デバッグ用の窓口（実機で「本当に見えているか」を測るため）。
+      // 実機で「本当に見えているか」を測るための窓口。
       globalThis.__characterlive__ = live;
 
       /*
        * ★需要を数字で見るための最小の計測。
-       *   資料の教え:「証拠が増えるたびに賭け金を増やす」。
-       *   押された事実が分からないと、次に進んでよいか判断できない。
-       *   外部サービスは使わず、まず localStorage に回数だけ残す。
+       *   資料の教え:「証拠が増えるたびに賭け金を増やす」。押された事実が分からないと
+       *   次に進んでよいか判断できない。外部サービスは使わず localStorage に回数だけ残す。
        */
       document.querySelector('[data-cta="line"]')?.addEventListener('click', () => {
         try {
