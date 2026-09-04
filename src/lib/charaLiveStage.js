@@ -297,6 +297,8 @@ export function applyCharaLiveFrame(nodes, model, resolveUrl) {
     }
 
     // ② 位置と姿勢。1 本の transform にまとめる(個別指定の上書き事故を防ぐ)。
+    //    ★状態ごとの動き(呼吸/跳ね/回転)は charaLiveState 側で float に足し込み済み。
+    //      ここは描くだけ。時刻に依存する計算をこの層に置かない(nowMs を持たない)。
     const { x, y, rotateDeg, scale } = item.float;
     const speaking = item.mode === 'react' || item.mode === 'answer';
     // 喋っている子はほんの少し大きく前に出す。

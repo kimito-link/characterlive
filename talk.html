@@ -169,7 +169,7 @@
       <div class="row">
         <!-- ★押している間だけ聞く（Grok本人の助言:「常時オンは配信には向かない」）
              スペースキーでも押せる。配信中にボタンを握り続けるのは無理なので。 -->
-        <button id="mic" class="mic" title="押している間だけ聞きます（スペースキーでも可）">
+        <button id="mic" class="mic" title="押すと聞き始めます。もう一度押すと止まります（スペースキーでも可）">
           <span class="mic__icon">🎤</span>
           <!-- ★音を拾えているかを見せる波形（ユーザー指摘:「スピーカーゲージがないので
                ほんとうにつかえてるかわかりずらい」）。押している間だけ出る。 -->
@@ -177,7 +177,7 @@
             <i></i><i></i><i></i><i></i><i></i>
           </span>
         </button>
-        <input id="say" type="text" placeholder="押して話す、または入力（例: たぬ姉、今日うまくいかなかった）" autocomplete="off" />
+        <input id="say" type="text" placeholder="🎤を押して話す、または入力（例: たぬ姉、今日うまくいかなかった）" autocomplete="off" />
         <button id="send">話す</button>
       </div>
       <!-- ★いまの状態を3段階で見せる（Grok:「点だけじゃ足りない」） -->
@@ -225,6 +225,7 @@
       import {
         startMicLevel, micPermission, watchMicPermission, describeMicPermission
       } from './src/lib/charaMicLevel.js';
+      import { REPLY_AFTER_SILENCE_MS } from './src/lib/charaIdle.js';
 
       const $ = (id) => document.getElementById(id);
       const logEl = $('log');
@@ -459,6 +460,8 @@
       let ptt = null;
       /** 押している間に聞き取った文（確定分） */
       let heardFinal = '';
+      /** 話し終わりを待つタイマー（黙って2秒でこちらから送る） */
+      let sendTimer = null;
 
       if (!listenable.ok) {
         $('mic').disabled = true;
@@ -475,6 +478,24 @@
             // ★途中経過も見せる（黙って処理すると壊れているように見える）
             $('say').value = final ? (heardFinal += text) : heardFinal + text;
             setState('listening', '聞いています…' + ($('say').value ? `「${$('say').value}」` : ''));
+            /* ★話し終わって間が空いたら自動で送る（マイクは切らない）。
+               ユーザー報告(2026-09-04):「grokは1回おしたら」
+               「しゃべったらちゃんとこたえてくれる」
+               → ★Grokは1回押したあと、会話が続く間ずっと聞いている。
+                 毎回ボタンを押し直させない。
+               ★待つのは REPLY_AFTER_SILENCE_MS(2秒)。これは「返事を始める速さ」
+                 の時計であって、自発発話の45〜90秒とは別物
+                 （混同すると急かす設計に戻る）。 */
+            clearTimeout(sendTimer);
+            if ($('say').value.trim()) {
+              sendTimer = setTimeout(() => {
+                const said = $('say').value.trim();
+                if (!said || !ptt.isHolding) return;
+                heardFinal = '';
+                $('say').value = '';
+                speak(said);
+              }, REPLY_AFTER_SILENCE_MS);
+            }
           },
           onState: (st) => {
             if (st === 'listening') setState('listening', '聞いています…');
@@ -529,6 +550,7 @@
         };
         const micOff = () => {
           if (!ptt.isHolding) return;
+          clearTimeout(sendTimer);
           $('mic').classList.remove('is-on');
           $('micBars').hidden = true;
           micPermission().then((st) => renderMicState(st));
@@ -543,23 +565,26 @@
           else if (!sawSound) log('（マイク）', '音が入っていませんでした。マイクの設定を確認してください');
         };
 
-        $('mic').addEventListener('pointerdown', (e) => { e.preventDefault(); micOn(); });
-        $('mic').addEventListener('pointerup', micOff);
-        $('mic').addEventListener('pointerleave', micOff);
-        $('mic').addEventListener('pointercancel', micOff);
+        /* ★1回押したら聞き続ける（トグル）。押しっぱなしにしない。
+           ユーザー報告(2026-09-04):「左クリックを押したら一瞬こうなるけどすぐもどっちゃう」
+           「grokは1回おしたら」
+           → ★Grokは1回押すと聞き続ける方式だった。押しっぱなしは
+             pointerleave で指/カーソルが少しずれただけで切れるので、
+             配信中には使えない（実際にそれで切れていた）。
+           ★もう1回押すか、話し終わって間が空けば止まる。 */
+        $('mic').addEventListener('click', (e) => {
+          e.preventDefault();
+          if (ptt.isHolding) micOff();
+          else micOn();
+        });
 
-        // ★スペースキーでも押せる（配信中にボタンを握り続けるのは無理）
-        //   文字入力中は誤爆するので効かせない。
+        // ★スペースキーも同じくトグル（配信中にキーを押し続けなくてよい）
         globalThis.addEventListener('keydown', (e) => {
           if (e.code !== 'Space' || e.repeat) return;
           if (document.activeElement === $('say')) return;
           e.preventDefault();
-          micOn();
-        });
-        globalThis.addEventListener('keyup', (e) => {
-          if (e.code !== 'Space') return;
-          if (document.activeElement === $('say')) return;
-          micOff();
+          if (ptt.isHolding) micOff();
+          else micOn();
         });
       }
 

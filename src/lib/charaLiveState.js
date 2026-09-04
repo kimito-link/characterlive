@@ -28,6 +28,7 @@
  */
 
 import { charaPartPaths } from './charaParts.js';
+import { resolveStateMotion, shouldSpinThisTurn, spinAngleDeg } from './charaMotion.js';
 
 /**
  * @typedef {'rinku'|'konta'|'tanunee'} CharaId
@@ -379,7 +380,36 @@ export function resolveCharaLiveLook(input) {
   const heatLevel = clamp01(input?.heatLevel);
   const reducedMotion = input?.reducedMotion === true;
 
-  const float = resolveCharaFloat(timeMs, charaId, { heatLevel, reducedMotion });
+  const baseFloat = resolveCharaFloat(timeMs, charaId, { heatLevel, reducedMotion });
+
+  /* ★状態ごとの動きを浮遊に上乗せする(2026-09-04・ユーザー指示)
+   *   考えてる=呼吸 / 喋ってる=跳ねる+左右の揺れ / 聞いてる・待機=何も足さない。
+   *   ★浮遊そのもの(resolveCharaFloat)は触らない。**足し算で重ねる**。
+   *     浮遊は3体が別位相で動くよう過去に実測で直したもの(ハッシュ衝突)。壊さない。
+   *   ★「他の2人は控えめ」の一番確実な実装は**何も足さないこと**。
+   *   ★グリッチ/砕け散るは入れていない。柔らかさが毒舌の緩衝材なので、
+   *     まず呼吸と跳ねるを見てから決める(ユーザー判断)。 */
+  const motionState = (mode === 'answer' || mode === 'react')
+    ? 'speaking'
+    : (mode === 'thinking' ? 'thinking' : 'idle');
+  const motion = resolveStateMotion({
+    timeMs, state: motionState, charaId, reducedMotion
+  });
+
+  // ★たまに半回転(1回の会話で1〜2回)。発話ごとに抽選し、当たった発話でだけ回す。
+  //   常時回転は禁止。抽選は決定論なので、同じ発話中に回ったり戻ったりしない。
+  let spinDeg = 0;
+  if (motionState === 'speaking' && !reducedMotion && Number.isFinite(startedAt)
+      && shouldSpinThisTurn({ charaId, modeStartedAtMs: startedAt })) {
+    spinDeg = spinAngleDeg(elapsed);
+  }
+
+  const float = {
+    x: baseFloat.x,
+    y: baseFloat.y + motion.dy,
+    rotateDeg: baseFloat.rotateDeg + motion.dTiltDeg + spinDeg,
+    scale: baseFloat.scale * motion.scaleMul
+  };
 
   /** @type {CharaExpression} */
   let expression;
