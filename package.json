@@ -1,0 +1,17 @@
+{
+  "name": "characterlive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "りんく・こん太・たぬ姉の3人がふわふわ浮いて喋る部品(見た目と動きだけ)",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "node scripts/serve-demo.mjs"
+  },
+  "devDependencies": {
+    "happy-dom": "^15.11.6",
+    "vitest": "^2.1.8"
+  }
+}
