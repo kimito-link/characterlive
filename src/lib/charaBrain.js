@@ -71,7 +71,14 @@ export async function think(input) {
   if (!persona) return { ok: false, reason: `unknown chara: ${charaId}` };
 
   const probe = await probeAi();
-  if (!probe.ok) return { ok: false, reason: probe.reason };
+  // ★AIが使えなくても黙らない。声は必ず出す。
+  //   実際に踏んだ不具合(2026-09-04):「読み上げがない」
+  //   → 原因は音声側ではなく、AIが 'downloadable'(準備中) を返して think が失敗し、
+  //     返事が作られないまま合成にも到達していなかった。
+  //   ★内蔵AIは端末の都合でいつでも準備中になる。**AIの可否に声を依存させてはいけない。**
+  if (!probe.ok) {
+    return { ok: true, text: fallbackLine(charaId, input.text), ms: 0, fallback: true, reason: probe.reason };
+  }
 
   const system = buildSystemPrompt(charaId, { mode: input.mode || DEFAULT_MODE });
 
@@ -89,13 +96,50 @@ export async function think(input) {
   try {
     session = await LM.create({ initialPrompts: [{ role: 'system', content: system }] });
     const raw = await session.prompt(user);
-    const text = tidy(raw);
+    const text = enforcePersona(tidy(raw), charaId);
     return { ok: true, text, ms: Math.round(performance.now() - t0) };
   } catch (e) {
-    return { ok: false, reason: String(e?.message || e) };
+    // ★ここでも黙らない（上と同じ理由）
+    return { ok: true, text: fallbackLine(charaId, input.text), ms: Math.round(performance.now() - t0), fallback: true, reason: String(e?.message || e) };
   } finally {
     try { session?.destroy?.(); } catch { /* no-op */ }
   }
+}
+
+/**
+ * ★人格をコードで守る（プロンプトだけに頼らない）。
+ *
+ *   実際に踏んだ不具合(2026-09-04・ユーザーが試して発見):
+ *     ① りんくが「りんく、応援してるよ」と【自分の名前で相手を呼んだ】
+ *     ② 話しかけた人を「こん太」と呼んだ
+ *     ③ 「こんふとし」のような崩れた呼び方が出た
+ *   プロンプトで禁止しても、小型モデルは破る。**出力側で機械的に潰す**のが確実。
+ *
+ * @param {string} text
+ * @param {CharaId} charaId
+ * @returns {string}
+ */
+export function enforcePersona(text, charaId) {
+  let t = String(text || '');
+  const p = PERSONAS[charaId];
+  if (!p) return t;
+
+  // ★人名での呼びかけを落とす（「りんく、〜」「こん太！」など先頭・末尾の呼びかけ）
+  const names = PERSONA_IDS.map((id) => PERSONAS[id].displayName);
+  for (const n of names) {
+    t = t.replace(new RegExp(`^${n}[、,。！!？?\s]+`), '');   // 文頭の呼びかけ
+    t = t.replace(new RegExp(`[、,]\s*${n}[、,。！!？?]*$`), ''); // 文末の呼びかけ
+    t = t.replace(new RegExp(`[、,]?\s*${n}[、,]\s*`), '');   // 文中の呼びかけ
+  }
+
+  // ★他の子の語尾が混ざったら落とす（「のだ」は りんく 専用）
+  for (const ng of p.speech.forbidden) {
+    if (ng.startsWith('〜')) continue;
+    t = t.split(ng).join('');
+  }
+
+  t = t.replace(/\s{2,}/g, ' ').trim();
+  return t || '……';
 }
 
 /**
@@ -118,4 +162,25 @@ export function tidy(raw) {
   }
   if (t.length > 80) t = t.slice(0, 78) + '…';
   return t;
+}
+
+/**
+ * ★AIが使えないときの返事。**黙るより喋る**。
+ *
+ *   人格は charaPersona.v1.js の口調に合わせる（ここで新しい人格を作らない）。
+ *   相手の名前は呼ばない（enforcePersona と同じ理由）。
+ *
+ * @param {CharaId} charaId
+ * @param {string} said 話しかけられた内容（疑問形かどうかだけ見る）
+ * @returns {string}
+ */
+export function fallbackLine(charaId, said = '') {
+  const asked = /[?？]\s*$|ですか|かな$|どう(思う|かな)/.test(String(said));
+  const table = {
+    rinku: asked ? ['ボクはいいと思うのだ！', 'だいじょうぶなのだ！'] : ['うんうん、聞いてるのだ', 'いいと思うのだ！'],
+    konta: asked ? ['ボクはいいと思うよ！', 'やってみたらいいよ！'] : ['ボク見てたよ、ちゃんと！', 'いまのよかったー！'],
+    tanunee: asked ? ['まあ、やってみればいいのよ', 'そりゃ、あなたが決めることよ'] : ['ふーん、そうなの', 'まあ、いいんじゃない']
+  };
+  const list = table[charaId] || table.rinku;
+  return list[Math.floor(Math.random() * list.length)];
 }
