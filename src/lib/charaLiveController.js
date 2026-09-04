@@ -127,25 +127,53 @@ export function startCharaLive(deps) {
     }
   };
 
+  /*
+   * ★rAF と タイマーを【併走】させる（2026-09-04 実測で2度踏んだ末の結論）。
+   *
+   *   1度目の失敗: rAF 一本 → タブが隠れると完全停止。
+   *   2度目の失敗: 「予約する時に isHidden() を見て分岐」→ **これでも止まった**。
+   *     理由: 次フレームの予約は rAF のコールバックの中にある。
+   *       ページが隠れた状態で開始（またはrAF予約直後に隠れる）と、
+   *       **そのコールバックが永久に発火せず、分岐する機会そのものが来ない**。
+   *       visibilitychange も、最初から hidden なら発火しないので救えない。
+   *
+   *   → 正解は「どちらが来るか予測して選ぶ」ではなく **両方仕掛けて先着を採る**。
+   *     見えていれば rAF が先に来る（滑らか・軽い）。
+   *     隠れていれば rAF は来ないのでタイマーが拾う（止まらない）。
+   *     二重発火は once フラグで1回に潰す。
+   */
   const raf =
     typeof deps.requestFrame === 'function'
       ? deps.requestFrame
       : (/** @type {FrameRequestCallback} */ cb) => {
-          // ★隠れている間は rAF が来ないので、必ずタイマーで進める。
-          if (isHidden() || typeof view?.requestAnimationFrame !== 'function') {
-            return /** @type {any} */ (setTimeout(() => cb(now()), HIDDEN_FRAME_MS));
+          let fired = false;
+          /** どちらか先に来た方だけを通す。 */
+          const once = () => {
+            if (fired) return;
+            fired = true;
+            cb(now());
+          };
+          // 保険のタイマー。隠れている時はこれだけが動く。
+          // 見えている時も走るが、rAF が先に来るので once に弾かれる。
+          const timerId = setTimeout(once, isHidden() ? HIDDEN_FRAME_MS : 250);
+          let rafId = 0;
+          if (typeof view?.requestAnimationFrame === 'function') {
+            rafId = view.requestAnimationFrame(once);
           }
-          return view.requestAnimationFrame(cb);
+          // caf が両方止められるよう、ハンドルを1つにまとめて返す。
+          return /** @type {any} */ ({ timerId, rafId });
         };
   const caf =
     typeof deps.cancelFrame === 'function'
       ? deps.cancelFrame
-      : (/** @type {number} */ id) => {
-          // どちらで取った id かを覚えず、両方に投げる(取り違えても止まる)。
+      : (/** @type {any} */ handle) => {
+          if (!handle) return;
           try {
-            if (typeof view?.cancelAnimationFrame === 'function') view.cancelAnimationFrame(id);
+            if (handle.rafId && typeof view?.cancelAnimationFrame === 'function') {
+              view.cancelAnimationFrame(handle.rafId);
+            }
           } catch { /* no-op */ }
-          clearTimeout(id);
+          try { clearTimeout(handle.timerId); } catch { /* no-op */ }
         };
   const getHeat = typeof deps.getHeatLevel === 'function' ? deps.getHeatLevel : () => 0;
   const backchannels =
@@ -275,6 +303,28 @@ export function startCharaLive(deps) {
   };
   frameId = raf(tick);
 
+  /*
+   * ★visibilitychange でループを張り直す（2026-09-04 実測で踏んだ致命傷）。
+   *
+   *   症状: LPを開いた直後にタブが隠れると、3人が【1回喋ったきり永久に止まる】。
+   *   真因: 次フレームの予約は「rAFのコールバックの中」にある。
+   *     表示中に開始すると1回目は requestAnimationFrame で予約されるが、
+   *     その直後に隠れると **そのコールバックが永久に発火しない**。
+   *     予約時にしか isHidden() を見ないので、一度この状態に入ると自力で戻れない。
+   *   → 可視状態が変わった瞬間に、外から張り直す。これが唯一の復帰経路。
+   */
+  const onVisibilityChange = () => {
+    if (destroyed || !visible) return;
+    // 進行中の予約を捨てて、いまの可視状態に合った経路で取り直す。
+    if (frameId) {
+      try { caf(frameId); } catch { /* no-op */ }
+    }
+    frameId = raf(tick);
+  };
+  try {
+    doc.addEventListener('visibilitychange', onVisibilityChange);
+  } catch { /* 監視できなくても描画自体は続ける */ }
+
   return {
     root,
     /** 先読み画像。GC 回収を防ぐために参照を公開して保持する(見た目には使わない)。 */
@@ -398,6 +448,7 @@ export function startCharaLive(deps) {
 
     destroy() {
       destroyed = true;
+      try { doc.removeEventListener('visibilitychange', onVisibilityChange); } catch { /* no-op */ }
       if (frameId) caf(frameId);
       frameId = 0;
       root.remove();

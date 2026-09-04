@@ -242,13 +242,65 @@ describe('★裏に回っても止まらない(実測で踏んだ事故の固定
     'utf8'
   );
 
-  it('visibilityState を見て、隠れている間は setTimeout に切り替えている', () => {
+  /*
+   * ★2026-09-04: 実装が「切り替え」から【併走】に変わった。
+   *   「予約時に isHidden() で分岐」では、最初から hidden のページで
+   *   rAF のコールバックが永久に発火せず、分岐の機会自体が来なかった（実測）。
+   *   よって rAF とタイマーを両方仕掛け、先着を採る形に修正した。
+   */
+  it('rAF だけに頼らず、タイマーも必ず併走させている', () => {
     expect(src, 'visibilityState を見ていない').toContain('visibilityState');
-    // rAF だけに頼っていないこと。
-    expect(src).toMatch(/isHidden\(\)[\s\S]{0,200}setTimeout/);
+    // ★rAF の有無に関わらず setTimeout を仕掛けていること
+    //   （条件分岐の中だけに setTimeout がある形は、上記の理由で不可）。
+    expect(src).toMatch(/const timerId = setTimeout\(/);
+    expect(src).toMatch(/requestAnimationFrame\(once\)/);
+    // 二重発火を潰すガードがあること。
+    expect(src).toContain('if (fired) return;');
   });
 
   it('裏では間隔を粗くして CPU を食わせない', () => {
     expect(src).toContain('HIDDEN_FRAME_MS');
+  });
+});
+
+/*
+ * ★2026-09-04 実測で2度踏んだ事故の再現テスト（最重要）。
+ *
+ *   症状: LPを開くと3人が【1回喋ったきり永久に止まる】。
+ *   条件: **ページが最初から hidden**（別ウィンドウが前面／OBSの非表示シーン等）。
+ *   真因: 次フレームの予約が rAF のコールバック内にあるため、
+ *     rAF が一度も発火しないと **予約する機会そのものが来ない**。
+ *     visibilitychange も、最初から hidden なら発火しないので救えない。
+ *   対策: rAF とタイマーを併走させ、先着で進める。
+ *
+ *   ★ここでは「rAFが一度も発火しない環境」を注入して、それでも進むことを確かめる。
+ */
+describe('★最初から隠れていても止まらない', () => {
+  it('rAF が永久に発火しない環境でも、タイマー側でフレームが進む', async () => {
+    const { startCharaLive } = await import('./charaLiveController.js');
+    const { Window } = await import('happy-dom');
+    const w = new Window({ url: 'http://localhost/' });
+    const doc = /** @type {any} */ (w.document);
+
+    // ★rAF は登録だけして【絶対に呼ばない】= 隠れたタブの再現。
+    let rafRegistered = 0;
+    /** @type {any} */ (w).requestAnimationFrame = () => { rafRegistered += 1; return 1; };
+    /** @type {any} */ (w).cancelAnimationFrame = () => {};
+    // 最初から hidden。
+    Object.defineProperty(doc, 'visibilityState', { get: () => 'hidden', configurable: true });
+
+    const mount = doc.createElement('div');
+    doc.body.appendChild(mount);
+    const live = startCharaLive({ doc, mount, resolveUrl: (p) => p });
+
+    // タイマー側が拾ってフレームが進むのを待つ。
+    await new Promise((r) => setTimeout(r, 400));
+
+    const bubbles = [...doc.querySelectorAll('.nlcl-chara__bubble')].filter((b) => !b.hidden);
+    expect(rafRegistered, 'rAF は登録されている（併走している証拠）').toBeGreaterThan(0);
+    expect(bubbles.length, '★rAFが来なくても誰かが喋っている').toBeGreaterThan(0);
+
+    live.destroy();
+    w.close();
   });
 });
