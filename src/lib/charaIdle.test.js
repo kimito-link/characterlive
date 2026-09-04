@@ -122,3 +122,26 @@ describe('★発話権は1つ（3本に戻さない）', () => {
     expect(decls.length).toBe(1);
   });
 });
+
+/*
+ * ★2つの時計を混同しない（2026-09-04・Grok本人の助言を実装に落としたもの）
+ *
+ *   - REPLY_AFTER_SILENCE_MS (2秒) … 話しかけられて、いつ返事を始めるか
+ *   - IDLE_DEFAULTS.quietMs (45秒) … 誰も何も言わないとき、いつ声をかけるか
+ *
+ *   Grok:「間は1.5〜2秒。3人いると誰かが必ず拾うから、長すぎると会話が死ぬ」
+ *   Grok:「急かすのは silence 判定の短さで、存在感は別物」
+ *   ★片方をもう片方に合わせる"統一"は劣化。ここで止める。
+ */
+import { REPLY_AFTER_SILENCE_MS } from './charaIdle.js';
+
+describe('★返事の速さと、声をかける間隔は別の時計', () => {
+  it('返事は2秒前後で始める（遅いと会話が死ぬ）', () => {
+    expect(REPLY_AFTER_SILENCE_MS).toBeGreaterThanOrEqual(1500);
+    expect(REPLY_AFTER_SILENCE_MS).toBeLessThanOrEqual(2500);
+  });
+
+  it('こちらから声をかける間隔は、返事の間より遥かに長い', () => {
+    expect(IDLE_DEFAULTS.quietMs).toBeGreaterThan(REPLY_AFTER_SILENCE_MS * 10);
+  });
+});
