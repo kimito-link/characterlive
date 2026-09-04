@@ -161,6 +161,13 @@ export function enforcePersona(text, charaId) {
     t = t.replace(re, '$1');
   }
 
+  /* ★二人称を子ごとに直す（2026-09-04・実害）
+     こん太が「あなたっていつも頑張ってるから」と返した。
+     ★プロンプトで指示しても小型モデルは破る。出力側でも直す。
+     ★「あなた」以外の二人称は触らない（言い換えると文が壊れる）。 */
+  if (p.secondPerson && p.secondPerson !== 'あなた') {
+    t = t.replace(/あなた/g, p.secondPerson);
+  }
   t = t.replace(/\s{2,}/g, ' ').trim();
   return t || '……';
 }

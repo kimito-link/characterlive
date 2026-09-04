@@ -69,3 +69,34 @@ describe('★人格の要点は削らない（短縮しても残すもの）', (
     }
   });
 });
+
+/*
+ * ★二人称は子ごとに固定する（2026-09-04 ユーザー指示）
+ *   りんく=あなた / こん太=キミ(カタカナ) / たぬ姉=あんた(必要なときだけ)
+ *
+ *   実害: こん太が「あなたっていつも頑張ってるから」と返した。
+ *   ★真因は、プロンプトが全員に「『あなた』と呼ぶ」と指示していたこと。
+ *     口調は人格の芯。ここが揃うと3人が「同じAI」に見える。
+ */
+describe('★二人称は子ごとに違う（3人が同じAIに見えないように）', () => {
+  it('りんくは「あなた」', () => {
+    expect(PERSONAS.rinku.secondPerson).toBe('あなた');
+    expect(buildSystemPrompt('rinku')).toContain('「あなた」');
+  });
+
+  it('こん太は「キミ」（★漢字の「君」は使わない）', () => {
+    expect(PERSONAS.konta.secondPerson).toBe('キミ');
+    expect(buildSystemPrompt('konta')).toContain('「キミ」');
+  });
+
+  it('★こん太のプロンプトに「あなた」が出てこない（流用を防ぐ）', () => {
+    // 1行目が「あなたは〇〇」だと、モデルが相手への呼びかけに流用する
+    expect(buildSystemPrompt('konta')).not.toContain('あなた');
+  });
+
+  it('たぬ姉は「あんた」、かつ普段は呼びかけを省く', () => {
+    expect(PERSONAS.tanunee.secondPerson).toBe('あんた');
+    expect(PERSONAS.tanunee.avoidSecondPerson).toBe(true);
+    expect(buildSystemPrompt('tanunee')).toMatch(/省く/);
+  });
+});

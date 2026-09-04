@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readMood, moodDirective } from './charaMood.js';
-import { limitSentences, limitChars, tidy, MAX_SENTENCES, MAX_CHARS } from './charaBrain.js';
+import { limitSentences, limitChars, tidy, enforcePersona, MAX_SENTENCES, MAX_CHARS } from './charaBrain.js';
 
 describe('★返事は文の数で切る（長いと機械っぽくなる）', () => {
   // ★以前は文字数(60字)でしか見ておらず、短ければ4文でも5文でも通っていた。
@@ -120,5 +120,28 @@ describe('★文の数だけでなく字数でも切る（吹き出しが切れ�
 
   it('上限は48字（声で読んで自然に聞ける長さ）', () => {
     expect(MAX_CHARS).toBe(48);
+  });
+});
+
+/* ★出力側でも二人称を直す（プロンプトだけに頼らない） */
+describe('★二人称の言い換え（小型モデルは指示を破るため）', () => {
+  const REAL = '大丈夫？でも、あなたっていつも頑張ってるから、全然疲れてない気がするよ！';
+
+  it('★こん太が「あなた」と言ったら「キミ」に直る（実害ケース）', () => {
+    const out = enforcePersona(REAL, 'konta');
+    expect(out).toContain('キミ');
+    expect(out).not.toContain('あなた');
+  });
+
+  it('たぬ姉なら「あんた」に直る', () => {
+    expect(enforcePersona(REAL, 'tanunee')).toContain('あんた');
+  });
+
+  it('りんくは「あなた」のまま（言い換えない）', () => {
+    expect(enforcePersona(REAL, 'rinku')).toContain('あなた');
+  });
+
+  it('★他の二人称は触らない（言い換えると文が壊れる）', () => {
+    expect(enforcePersona('キミはすごい', 'konta')).toBe('キミはすごい');
   });
 });
