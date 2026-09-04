@@ -17,6 +17,7 @@
 import { PERSONAS, PERSONA_IDS, buildSystemPrompt, DEFAULT_MODE } from './charaPersona.v1.js';
 import { detectAddressedChara } from './charaLiveState.js';
 import { readMood, moodDirective } from './charaMood.js';
+import { readAddress, narrowContext, addressDirective } from './charaAddress.js';
 
 /** @typedef {'rinku'|'konta'|'tanunee'} CharaId */
 
@@ -90,16 +91,36 @@ export async function think(input) {
 
   /* ★リレー中は「その順番での役割」も渡す(2026-09-05)
      受け止める / ずらす / 閉じる を明示しないと、3人が同じことを言う。 */
+  /* ★名指しされたときの振る舞い（2026-09-05・Grokに相談して確定）
+       - 「たぬ姉の言うとおりだ」= 同意 → 受けるだけ。新しい意見を足さない
+       - 直前に別の子が喋っていたら、その**最後の1文**を踏まえる
+       - 役割ごとに答え方を変える（受け止める / ずらす / 閉じる）
+     ★渡す文脈は4つだけ。それ以上足すと小型モデルは要約し始める。 */
+  const addressed = readAddress(input.text);
+  const ctx = narrowContext({ text: input.text, charaId, history: input.history });
+  const address = addressed.charaId === charaId
+    ? addressDirective({ kind: addressed.kind, charaId, prevName: ctx.prevName, prevLine: ctx.prevLine })
+    : '';
+
   const system = buildSystemPrompt(charaId, {
     mode: input.mode || DEFAULT_MODE,
-    situation: [situation, input.relay].filter(Boolean).join(' ') || undefined
+    /* ★指示が重なるとプロンプト上限を超える（実測338字・上限は320〜350）。
+       ★名指しの指示は「1文だけ」「役割」まで含んでいるので、
+         名指しがあるときは mood の細かい禁止文を落とす。
+         受け止める姿勢は名指し側にも入っている。 */
+    situation: (address
+      ? [address, input.relay].filter(Boolean).join(' ')
+      : [situation, input.relay].filter(Boolean).join(' ')) || undefined
   });
 
   // 直近のやりとりだけ渡す（内蔵AIは小型なので長い履歴は毒）
   // ★履歴にも他の子の名前を出さない（プロンプト本体と同じ理由・Grokの指摘）
   //   「こん太: いいね！」をそのまま見せると、モデルは"使ってよい名前"として受け取る。
   //   誰が言ったかは「相手/あなた/仲間」で足りる（1〜2文の返事に人名は要らない）。
-  const hist = (input.history || []).slice(-4)
+  /* ★名指しされたときは履歴を渡さない。
+     直前の1文は address の指示に入れてある。両方渡すと二重になり、
+     小型モデルが要約を始める（Grokの指摘）。 */
+  const hist = (address ? [] : (input.history || [])).slice(-4)
     .map((h) => {
       if (h.who === '配信者') return `相手: ${h.text}`;
       return h.who === persona.displayName ? `あなた: ${h.text}` : `仲間: ${h.text}`;
@@ -128,7 +149,9 @@ ${ask}`;
     session = await LM.create({ initialPrompts: [{ role: 'system', content: system }] });
     const raw = await session.prompt(user);
     // ★リレー中は1人1文に固定する（指示）。3人ぶん続くので長いと聞き疲れる。
-    const text = enforcePersona(tidy(raw, input.relay ? 1 : MAX_SENTENCES), charaId);
+    // ★リレー中と名指し時は1文に固定（Grok:「役割を変えるだけで、長さは揃える」）
+    const oneSentence = Boolean(input.relay) || Boolean(address);
+    const text = enforcePersona(tidy(raw, oneSentence ? 1 : MAX_SENTENCES), charaId);
     return { ok: true, text, ms: Math.round(performance.now() - t0) };
   } catch (e) {
     // ★ここでも黙らない（上と同じ理由）
@@ -151,6 +174,35 @@ ${ask}`;
  * @param {CharaId} charaId
  * @returns {string}
  */
+/**
+ * ★「のだ」の付け方を直す（純関数）。
+ *
+ *   実害(2026-09-05):「大丈夫のだ」と言った。
+ *   日本語では名詞・形容動詞のあとに「な」が要る:
+ *     ○ 大丈夫なのだ / 元気なのだ
+ *     × 大丈夫のだ   / 元気のだ
+ *   ★動詞・形容詞のあとは「のだ」のまま（「聞くのだ」「いいのだ」）。
+ *     そこまで直すと逆に壊すので、**名詞・形容動詞だけ**を対象にする。
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function fixNoda(text) {
+  let t = String(text || '');
+  /* ★「〜な」で終わる語のあとに付いた「のだ」を「なのだ」にする。
+     よく出るものだけを名指しで直す。網羅は狙わない（誤変換の方が害が大きい）。 */
+  const NEEDS_NA = [
+    '大丈夫', '元気', '好き', '嫌い', '無理', '得意', '苦手',
+    '大事', '大切', '静か', '綺麗', 'きれい', '素敵', 'すてき',
+    '幸せ', '心配', '残念', '十分', 'じゅうぶん', '自由', '本当', 'ほんと'
+  ];
+  for (const w of NEEDS_NA) {
+    // 「大丈夫のだ」→「大丈夫なのだ」（すでに「なのだ」なら触らない）
+    t = t.replace(new RegExp(w + 'のだ', 'g'), w + 'なのだ');
+  }
+  return t;
+}
+
 export function enforcePersona(text, charaId) {
   let t = String(text || '');
   const p = PERSONAS[charaId];
@@ -182,6 +234,9 @@ export function enforcePersona(text, charaId) {
   if (p.secondPerson && p.secondPerson !== 'あなた') {
     t = t.replace(/あなた/g, p.secondPerson);
   }
+  // ★「のだ」を使う子だけ、付け方を直す（「大丈夫のだ」→「大丈夫なのだ」）
+  if (p.speech.ending === 'のだ') t = fixNoda(t);
+
   t = t.replace(/\s{2,}/g, ' ').trim();
   return t || '……';
 }
