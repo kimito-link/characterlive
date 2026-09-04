@@ -229,7 +229,7 @@
       import {
         startMicLevel, micPermission, watchMicPermission, describeMicPermission
       } from './src/lib/charaMicLevel.js';
-      import { REPLY_AFTER_SILENCE_MS } from './src/lib/charaIdle.js';
+      import { MIC_END_OF_SPEECH_MS } from './src/lib/charaIdle.js';
       import { isHeartTalk, relayMembers, relayDirective, checkRelayLine } from './src/lib/charaRelay.js';
 
       const $ = (id) => document.getElementById(id);
@@ -555,26 +555,40 @@
 
         ptt = createPushToTalk({
           onHeard: ({ final, text }) => {
-            // ★途中経過も見せる（黙って処理すると壊れているように見える）
-            $('say').value = final ? (heardFinal += text) : heardFinal + text;
+            /* ★途中経過(final=false)と確定(final=true)を区別する。
+
+               ユーザー報告(2026-09-05):「自分のことばがうまくログに残らないかも」
+               実害のログ:「しゃべれる」「のに」「あーなるほど」
+                 = ★言い終わる前に、途中の認識結果がそのまま送信されていた。
+
+               真因は2つ:
+                 ① 途中経過でも送信タイマーを動かしていた
+                    → 言っている最中に2秒経つと、その時点の文字が送られる
+                 ② 途中経過を heardFinal に足していなかったため、
+                    確定前に送ると**言った言葉の一部しか残らない**
+               → ★確定した文だけでタイマーを動かす。
+                 途中経過は画面に映すだけで、送信の判断には使わない。 */
+            if (final) {
+              heardFinal += text;
+              $('say').value = heardFinal;
+            } else {
+              // 途中経過は表示だけ（確定分＋いま聞こえている分）
+              $('say').value = heardFinal + text;
+            }
             setState('listening', '聞いています…' + ($('say').value ? `「${$('say').value}」` : ''));
-            /* ★話し終わって間が空いたら自動で送る（マイクは切らない）。
-               ユーザー報告(2026-09-04):「grokは1回おしたら」
-               「しゃべったらちゃんとこたえてくれる」
-               → ★Grokは1回押したあと、会話が続く間ずっと聞いている。
-                 毎回ボタンを押し直させない。
-               ★待つのは REPLY_AFTER_SILENCE_MS(2秒)。これは「返事を始める速さ」
-                 の時計であって、自発発話の45〜90秒とは別物
-                 （混同すると急かす設計に戻る）。 */
+
+            /* ★送るのは「確定した言葉があって、そのあと黙ったとき」だけ。
+               途中経過で送ると、言い終わる前に切られる（上記の実害）。 */
+            if (!final) return;
             clearTimeout(sendTimer);
-            if ($('say').value.trim()) {
+            if (heardFinal.trim()) {
               sendTimer = setTimeout(() => {
-                const said = $('say').value.trim();
+                const said = heardFinal.trim();
                 if (!said || !ptt.isHolding) return;
                 heardFinal = '';
                 $('say').value = '';
                 speak(said);
-              }, REPLY_AFTER_SILENCE_MS);
+              }, MIC_END_OF_SPEECH_MS);
             }
           },
           onState: (st) => {

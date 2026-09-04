@@ -133,7 +133,7 @@ describe('★発話権は1つ（3本に戻さない）', () => {
  *   Grok:「急かすのは silence 判定の短さで、存在感は別物」
  *   ★片方をもう片方に合わせる"統一"は劣化。ここで止める。
  */
-import { REPLY_AFTER_SILENCE_MS } from './charaIdle.js';
+import { REPLY_AFTER_SILENCE_MS, MIC_END_OF_SPEECH_MS } from './charaIdle.js';
 
 describe('★返事の速さと、声をかける間隔は別の時計', () => {
   it('返事は2秒前後で始める（遅いと会話が死ぬ）', () => {
@@ -143,5 +143,23 @@ describe('★返事の速さと、声をかける間隔は別の時計', () => {
 
   it('こちらから声をかける間隔は、返事の間より遥かに長い', () => {
     expect(IDLE_DEFAULTS.quietMs).toBeGreaterThan(REPLY_AFTER_SILENCE_MS * 10);
+  });
+});
+
+/* ★マイクの「話し終わり」判定(2026-09-05・実害から追加)
+   ユーザー報告:「自分のことばがうまくログに残らないかも」
+   ログに「しゃべれる」「のに」「あーなるほど」だけが残っていた。
+   ★2秒では文の途中の息継ぎで切られ、言葉を奪う。 */
+describe('★話し終わりを待つ時間は、返事の速さより長い', () => {
+  it('息継ぎで切られない長さ（3秒以上）', () => {
+    expect(MIC_END_OF_SPEECH_MS).toBeGreaterThanOrEqual(3000);
+  });
+
+  it('★返事の速さ(2秒)より長い（別の時計として扱う）', () => {
+    expect(MIC_END_OF_SPEECH_MS).toBeGreaterThan(REPLY_AFTER_SILENCE_MS);
+  });
+
+  it('待ちすぎない（10秒は超えない）', () => {
+    expect(MIC_END_OF_SPEECH_MS).toBeLessThanOrEqual(10000);
   });
 });
