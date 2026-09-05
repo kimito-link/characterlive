@@ -25,8 +25,14 @@ describe('★急所を拾う（要約ではなく、痛いところ）', () => {
     expect(findSorePoint('もうやめたい').kind).toBe('quitting');
   });
 
-  it('他人との比較を拾う', () => {
-    expect(findSorePoint('みんなすごいのに').kind).toBe('comparison');
+  /* ★「他人との比較」の分類は外した（2026-09-06）
+     ★話題の中心を「悩み」から「いま起きていること」に移したため。
+       比較の話は quitting / self-doubt で拾えれば足りる。
+       分類を増やすより、日常の発話を拾える方が優先。 */
+  it('★悩み以外の日常を拾えることの方が大事', () => {
+    expect(findSorePoint('このボスむずい').kind).toBe('stuck');
+    expect(findSorePoint('やっとできた').kind).toBe('win');
+    expect(findSorePoint('なんか眠くなってきた').kind).toBe('body');
   });
 
   it('急所が無ければ何も返さない（無理に探さない）', () => {

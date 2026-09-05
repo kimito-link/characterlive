@@ -166,10 +166,10 @@ export async function think(input) {
     ? `これまでの会話:
 ${hist}
 
-配信者:「${input.text}」
+相手:「${input.text}」
 
 ${ask}`
-    : `配信者:「${input.text}」
+    : `相手:「${input.text}」
 
 ${ask}`;
 
