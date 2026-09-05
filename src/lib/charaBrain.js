@@ -18,6 +18,7 @@ import { PERSONAS, PERSONA_IDS, buildSystemPrompt, DEFAULT_MODE } from './charaP
 import { detectAddressedChara } from './charaLiveState.js';
 import { readMood, moodDirective } from './charaMood.js';
 import { readAddress, narrowContext, addressDirective } from './charaAddress.js';
+import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js';
 
 /** @typedef {'rinku'|'konta'|'tanunee'} CharaId */
 
@@ -96,6 +97,15 @@ export async function think(input) {
        - 直前に別の子が喋っていたら、その**最後の1文**を踏まえる
        - 役割ごとに答え方を変える（受け止める / ずらす / 閉じる）
      ★渡す文脈は4つだけ。それ以上足すと小型モデルは要約し始める。 */
+  /* ★急所を拾う（2026-09-06）。相手が一番気にしている一語に触れる。
+     ★要約ではない。「フォロワー増えない」の急所は「増えない」であって
+       「フォロワー」ではない。ここを外すと当たり障りのない返事になる。
+     ★名指しやリレーのときは、そちらの指示が優先（プロンプト上限があるため）。 */
+  const sore = findSorePoint(input.text);
+  const react = (input.relay || readAddress(input.text).charaId === charaId)
+    ? ''
+    : reactDirective({ charaId, point: sore.point, kind: sore.kind });
+
   const addressed = readAddress(input.text);
   const ctx = narrowContext({ text: input.text, charaId, history: input.history });
   const address = addressed.charaId === charaId
@@ -108,9 +118,18 @@ export async function think(input) {
        ★名指しの指示は「1文だけ」「役割」まで含んでいるので、
          名指しがあるときは mood の細かい禁止文を落とす。
          受け止める姿勢は名指し側にも入っている。 */
+    /* ★「反応したくなる返答」の指示を足す（2026-09-06・Grokの助言）
+       Grok:「欠けてるのはレイテンシじゃなく、相手の予想を壊す力と、
+              人間が反応せざるを得ない圧力」
+       ★急所（相手が一番気にしている一語）を拾って、そこに触れさせる。
+         触れないと「わかってくれない」で終わる。 */
     situation: (address
       ? [address, input.relay].filter(Boolean).join(' ')
-      : [situation, input.relay].filter(Boolean).join(' ')) || undefined
+      /* ★mood と react を両方入れると上限を超える（実測309字・上限350）。
+         ★急所が拾えているなら react を優先する。
+           mood は「落ち込んでいるらしい」という粗い判定だが、
+           react は「何を気にしているか」まで特定できているため。 */
+      : [react || situation, input.relay].filter(Boolean).join(' ')) || undefined
   });
 
   // 直近のやりとりだけ渡す（内蔵AIは小型なので長い履歴は毒）
@@ -168,7 +187,14 @@ ${ask}`;
     // ★リレー中は1人1文に固定する（指示）。3人ぶん続くので長いと聞き疲れる。
     // ★リレー中と名指し時は1文に固定（Grok:「役割を変えるだけで、長さは揃える」）
     const oneSentence = Boolean(input.relay) || Boolean(address);
-    const text = enforcePersona(tidy(raw, oneSentence ? 1 : MAX_SENTENCES), charaId);
+    let text = enforcePersona(tidy(raw, oneSentence ? 1 : MAX_SENTENCES), charaId);
+
+    /* ★刺さりすぎを止める（2026-09-06・Grokの助言）
+       Grok:「反応したくなるAIの危険は刺さりすぎ」
+       ★人格否定・決めつけ・命令は逃げ道を塞ぐ。ここだけは通さない。
+         止めたときは決め打ちに落とす（黙るより喋る）。 */
+    const harsh = checkNotTooHarsh(text);
+    if (!harsh.ok) text = fallbackLine(charaId, input.text);
     return { ok: true, text, ms: Math.round(performance.now() - t0) };
   } catch (e) {
     // ★ここでも黙らない（上と同じ理由）

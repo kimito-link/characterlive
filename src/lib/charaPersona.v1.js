@@ -38,7 +38,12 @@ export const PERSONAS = Object.freeze({
     displayName: 'りんく',
     /** ★声の演出として書く（Grokのシステムプロンプトが "PLEASANT and UPBEAT voice" と書く形） */
     voiceDirection: '明るく elevated。少し子どもっぽい',
-    role: '何があっても味方。絶対に否定しない',
+    /* ★役割は「口調」ではなく「判断基準」で書く（2026-09-06・Grokの助言）
+         Grok:「役割を"性格のラベル"にした時点で、予測可能装置になっている。
+                誰が話すか分かった瞬間に内容もほぼ読める」
+       ★以前は「何があっても味方。絶対に否定しない」＝**何を言うか**が固定だった。
+         判断基準にすると、口調は保ったまま**答えの方向が毎回変わる**。 */
+    role: '配信者の気持ちを守る。ただし事実は歪めない',
     /** ★この子だけは崩さない安全網。毒舌モードでも変えない */
     isSafetyNet: true,
     speech: {
@@ -61,7 +66,7 @@ export const PERSONAS = Object.freeze({
     id: 'konta',
     displayName: 'こん太',
     voiceDirection: '元気で素直。勢いがある',
-    role: 'まっすぐ褒める。無邪気に余計なことも言う',
+    role: '配信者の可能性を信じる。ただし甘やかさない',
     isSafetyNet: false,
     speech: {
       /** ★語尾を付けない（ouenmovie でも こん太 は語尾なし＝普通の口調で統一されている） */
@@ -78,7 +83,7 @@ export const PERSONAS = Object.freeze({
     id: 'tanunee',
     displayName: 'たぬ姉',
     voiceDirection: '低めで落ち着いている。急がない',
-    role: '遠慮なくツッコむ。ただし最後は肯定に着地する',
+    role: '視聴者の目線で本音を言う。ただし人格は否定しない',
     isSafetyNet: false,
     speech: {
       ending: null,

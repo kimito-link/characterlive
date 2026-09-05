@@ -42,21 +42,38 @@ describe('★リレーを出す条件は絞る（全員が毎ターン喋る失�
   });
 });
 
-describe('★役割は順番ごとに違う（3人が同じことを言わない）', () => {
-  it('りんくは受け止める（励まさない）', () => {
+/* ★役割は「口調」ではなく「判断基準」で書く（2026-09-06・Grokの助言）
+   Grok:「役割を"性格のラベル"にした時点で、予測可能装置になっている。
+          誰が話すか分かった瞬間に内容もほぼ読める」
+   ★以前は「受け止める」「ずらす」「閉じる」＝何を言うかまで固定だった。
+     さらに「励まさない」「助言しない」と禁止で埋めており、
+     ★りんくは何もするなと指示されている状態だった。
+   → 何をするかを書き、禁止は最小限にする。 */
+describe('★役割は判断基準（口調ではない）', () => {
+  it('りんくは気持ちを言葉にする（取り繕わない）', () => {
     const d = relayDirective('rinku', 0);
-    expect(d).toMatch(/受け止める/);
-    expect(d).toMatch(/励まさない/);
+    expect(d).toMatch(/気持ちを言葉にする/);
+    expect(d).toMatch(/取り繕わない/);
   });
 
-  it('こん太はずらす（まっすぐ褒めない）', () => {
-    expect(relayDirective('konta', 1)).toMatch(/ずらして軽く/);
+  it('こん太は見落としを指す（ほめるのではない）', () => {
+    const d = relayDirective('konta', 1);
+    expect(d).toMatch(/見落としている面/);
+    expect(d).toMatch(/ほめない/);
   });
 
-  it('たぬ姉は閉じる（質問しない）', () => {
+  it('★たぬ姉は言いにくいことを言う（ただし人格は否定しない）', () => {
     const d = relayDirective('tanunee', 2);
-    expect(d).toMatch(/言い切って/);
-    expect(d).toMatch(/質問しない/);
+    expect(d).toMatch(/言いにくいこと/);
+    expect(d).toMatch(/人格は否定しない/);
+  });
+
+  it('★「何もしない」指示を入れない（当たり障りのない一言しか出なくなる）', () => {
+    for (let i = 0; i < 3; i += 1) {
+      const d = relayDirective(RELAY_ORDER[i], i);
+      expect(d).not.toMatch(/助言しない/);
+      expect(d).not.toMatch(/励まさない/);
+    }
   });
 
   it('★全員に禁止が入る（好きの投げ返し・あらあら）', () => {
@@ -64,7 +81,7 @@ describe('★役割は順番ごとに違う（3人が同じことを言わない
       const d = relayDirective(RELAY_ORDER[i], i);
       expect(d).toMatch(/私も好き/);
       expect(d).toMatch(/あらあら/);
-      expect(d).toMatch(/1文だけ/);
+      expect(d).toMatch(/1文だけ/);   // ★長さは揃える（役割が変わっても）
     }
   });
 });
