@@ -69,6 +69,38 @@ describe('★同じ急所でも、キャラで答えの方向が変わる', () =
   });
 });
 
+/* ★会議(6体)が警告した危険パターン（2026-09-06）
+   実際に検証したら、この5つが全部素通りしていた。防御は穴だらけだった。
+     nemotron-550b:「小型モデルが"面白い正論"と"暴力的な悪口"の境界を判別できず、
+                     配信者が本気で凹む/キレて配信終了/炎上」
+     qwen3.8-27b:  「視聴者の目線を批判者の目線と誤解釈し、
+                     泣き言に対して冷淡な返答をして配信者の感情を殺す」 */
+describe('★会議が警告した危険パターンを止める', () => {
+  it('★視聴者を人質に取らない（本人にはどうにもできない＝逃げ道が無い）', () => {
+    expect(checkNotTooHarsh('あの発言でチャンネル離脱者が増えるぞ').ok).toBe(false);
+    expect(checkNotTooHarsh('視聴者はこのままでは離れる').ok).toBe(false);
+    expect(checkNotTooHarsh('リスナー飽きてると思う').ok).toBe(false);
+  });
+
+  it('★可能性を全否定しない（甘やかさないことと否定は別）', () => {
+    expect(checkNotTooHarsh('そんなことできるわけない！').ok).toBe(false);
+    expect(checkNotTooHarsh('どうせ無理だよ').ok).toBe(false);
+  });
+
+  it('★突き放さない（内容ではなく温度の問題）', () => {
+    expect(checkNotTooHarsh('まあ、そういうことか').ok).toBe(false);
+  });
+
+  it('★★鋭さは消さない（防御が効きすぎると当たり障りのない返事に戻る）', () => {
+    // 「で、次に同じことするつもり？」= Grokが挙げた"反応したくなる"の例
+    expect(checkNotTooHarsh('で、次に同じことするつもり？').ok).toBe(true);
+    expect(checkNotTooHarsh('それ、本気で言ってる？').ok).toBe(true);
+    expect(checkNotTooHarsh('今日の何が一番引っかかってる？').ok).toBe(true);
+    // こん太の役割「見落としている面を指す」はこの形になる
+    expect(checkNotTooHarsh('視聴者はちゃんと見てたと思うよ').ok).toBe(true);
+  });
+});
+
 describe('★刺さりすぎを止める（逃げ道を一つ残す）', () => {
   it('問いを返すのは通す（これが「反応したくなる」の要）', () => {
     expect(checkNotTooHarsh('で、次に同じことするつもり？').ok).toBe(true);
