@@ -230,6 +230,10 @@
         startMicLevel, micPermission, watchMicPermission, describeMicPermission
       } from './src/lib/charaMicLevel.js';
       import { MIC_END_OF_SPEECH_MS } from './src/lib/charaIdle.js';
+      import { resolveTurnEnd } from './src/lib/charaTurnEnd.js';
+      import {
+        warmUpBackchannels, playBackchannel, shouldBackchannel
+      } from './src/lib/charaBackchannel.js';
       import { isHeartTalk, relayMembers, relayDirective, checkRelayLine } from './src/lib/charaRelay.js';
 
       const $ = (id) => document.getElementById(id);
@@ -253,6 +257,8 @@
          ★人は返事を待たずに喋る。捨てずに順番待ちにする。 */
       const pending = [];
       let busy = false;
+      /** 直前の思考時間。★相槌を出すか決めるのに使う（速いときは挟まない） */
+      let lastThinkMs = 9999;
 
       /** 再生中の音声（次を鳴らす前に止める） */
       let playing = null;
@@ -344,6 +350,15 @@
           ` &nbsp; <span class="dot ${vv ? 'ok' : 'ng'}"></span>声: ${vv ? 'VOICEVOX 起動中' : 'VOICEVOX 未起動（文字だけ）'}`;
         if (!vv) $('voice').checked = false;
         if (vv) buildVoicePicker();
+        /* ★相槌を作り置きする（2026-09-06）
+           ★返事を作っている1.9秒（推論1300+合成600）が無音になり、
+             そこで「会話が止まった」と感じていた。人間の会話に無音の1.9秒はない。
+           ★作り置きしておけば0msで鳴る（その場で合成すると339msかかる・実測）。 */
+        if (vv) {
+          warmUpBackchannels(voices).then((r) => {
+            if (r.ok) console.info(`相槌を${r.made}個 作り置き（${r.ms}ms）`);
+          });
+        }
         // ★AIが準備中でも会話は成立する（決め打ちの返事＋声）。使えない、と誤解させない。
         if (!ai.ok && vv) {
           $('status').innerHTML += ' &nbsp;<span style="color:var(--muted)">※AIが準備中でも声は出ます</span>';
@@ -488,7 +503,18 @@
         setState('thinking', '考えています…');
         live.beginThinking({ charaId: who });
 
+        /* ★先に相槌を鳴らして、考えている間の無音を埋める（2026-09-06）
+           ★人間も同じことをしている: 隙間200msで返すのに発話の計画に600ms要る
+             （Levinson）。その差を埋めているのが相槌と言いよどみ。
+           ★毎回は鳴らさない。前回が速かったときは挟まない
+             （速いのに相槌を入れると、かえって遅くなる）。 */
+        if ($('voice').checked && voiceOk && shouldBackchannel({ lastThinkMs })) {
+          const bc = playBackchannel(who, { seed: history.length });
+          if (bc) playing = bc;
+        }
+
         const res = await think({ charaId: who, text: t, mode: $('mode').value, history });
+        lastThinkMs = res.ms ?? lastThinkMs;
         live.endThinking();
 
         if (!res.ok) {
@@ -615,7 +641,17 @@
                 heardFinal = '';
                 $('say').value = '';
                 speak(said);
-              }, MIC_END_OF_SPEECH_MS);
+              }, resolveTurnEnd(heardFinal).waitMs);
+              /* ★待ち時間を「文の完結度」で変える（2026-09-06）
+                 ★実測: 1往復に5.4秒かかっていた。
+                   内訳 = 話し終わり待ち3500 + 返事開始2000 + 推論1300 + 合成600。
+                   人間同士の会話は平均208ms（Stivers 2009）。★桁が2つ違う。
+                 ★3500msは「無音を数えていただけ」。ここが一番の無駄だった。
+                   無音の長さだけで判断すると、必ずどちらかで失敗する:
+                     短くする → 言葉を奪う（実害:「しゃべれる」「のに」だけが残った）
+                     長くする → 会話にならない（いまの状態）
+                 → 言い切っていれば250ms、続きそうなら2500ms。
+                   Grokが無音ではなく「文が完結したか」で判断しているのと同じ考え。 */
             }
           },
           onState: (st) => {
