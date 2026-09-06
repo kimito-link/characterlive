@@ -225,7 +225,9 @@
       import {
         fetchVoiceChoices, loadVoices, saveVoices, resetVoices, sampleLine
       } from './src/lib/charaVoicePicker.js';
-      import { canListen, createPushToTalk } from './src/lib/charaListen.js';
+      import {
+        canListen, createPushToTalk, probeLocalRecognition, installLocalRecognition
+      } from './src/lib/charaListen.js';
       import {
         startMicLevel, micPermission, watchMicPermission, describeMicPermission
       } from './src/lib/charaMicLevel.js';
@@ -234,6 +236,7 @@
       import {
         warmUpBackchannels, playBackchannel, shouldBackchannel
       } from './src/lib/charaBackchannel.js';
+      import { createToneTracker, readTone } from './src/lib/charaVoiceTone.js';
       import { isHeartTalk, relayMembers, relayDirective, checkRelayLine } from './src/lib/charaRelay.js';
 
       const $ = (id) => document.getElementById(id);
@@ -259,6 +262,11 @@
       let busy = false;
       /** 直前の思考時間。★相槌を出すか決めるのに使う（速いときは挟まない） */
       let lastThinkMs = 9999;
+      /* ★声の調子を覚える（その人の平常時と比べるため）
+         ★絶対値では判断しない。大きい声の人と小さい声の人がいる。 */
+      const tone = createToneTracker();
+      /** 直前の発話の声の調子 */
+      let lastTone = 'flat';
 
       /** 再生中の音声（次を鳴らす前に止める） */
       let playing = null;
@@ -513,7 +521,7 @@
           if (bc) playing = bc;
         }
 
-        const res = await think({ charaId: who, text: t, mode: $('mode').value, history });
+        const res = await think({ charaId: who, text: t, mode: $('mode').value, history, tone: lastTone });
         lastThinkMs = res.ms ?? lastThinkMs;
         live.endThinking();
 
@@ -545,6 +553,12 @@
             playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
             await playing.done;
             live.onCommentSpokenEnd();
+            /* ★吹き出しを閉じる（2026-09-06・実害「ふきだしがでっぱなし」）
+               ★onCommentSpokenEnd は相槌(react)しか閉じない。
+                 通常の返事は answer なので閉じられず、durationMs=60000 のまま
+                 60秒残り、次の返事と並んでいた。
+               ★リレー側には closeChara を足したのに、こちらは漏れていた。 */
+            live.closeChara(who);
           } else {
             live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000, charaId: who });
           }
@@ -606,7 +620,18 @@
         micPermission().then((st) => renderMicState(st));
         watchMicPermission((st) => renderMicState(st, ptt?.isHolding));
 
+        /* ★端末内で音声認識できるなら、そちらを使う（2026-09-06）
+           ★従来の webkitSpeechRecognition は音声をGoogleへ送っている。
+             「全部ローカル」と言いながら、聞いた声だけ外に出ていた。
+           ★使えなければ黙って従来方式に戻る（使えないのは異常ではない）。 */
+        let preferLocal = false;
+        probeLocalRecognition().then((r) => {
+          preferLocal = r.ok;
+          console.info(`端末内での音声認識: ${r.ok ? '使える' : (r.reason || '使えない')}`);
+        });
+
         ptt = createPushToTalk({
+          get preferLocal() { return preferLocal; },
           onHeard: ({ final, text }) => {
             /* ★途中経過(final=false)と確定(final=true)を区別する。
 
@@ -637,7 +662,11 @@
             if (heardFinal.trim()) {
               sendTimer = setTimeout(() => {
                 const said = heardFinal.trim();
-                if (!said || !ptt.isHolding) return;
+                // ★!ptt.isHolding での早期 return をやめた（2026-09-06）
+                //   マイクを止めた直後にタイマーが発火すると、言った言葉が消えていた。
+                if (!said) return;
+                // ★声の調子を確定する（この一区切りをどう喋ったか）
+                lastTone = readTone(tone.end(Date.now(), said.length)).tone;
                 heardFinal = '';
                 $('say').value = '';
                 speak(said);
@@ -684,6 +713,7 @@
 
         const drawLevel = (lv) => {
           if (lv > 0.12) { sawSound = true; silentFrames = 0; } else { silentFrames += 1; }
+          tone.push(lv);   // ★声の調子を覚える
           // 中央が高い山にする（棒が5本とも同じ高さだと機械的に見える）
           const shape = [0.45, 0.75, 1, 0.75, 0.45];
           bars.forEach((b, i) => {
@@ -703,6 +733,7 @@
           heardFinal = '';
           sawSound = false;
           silentFrames = 0;
+          tone.begin(Date.now());
           $('say').value = '';
           $('mic').classList.add('is-on');
           $('micBars').hidden = false;
@@ -725,8 +756,12 @@
           meter?.stop();
           meter = null;
           ptt.end();
-          // ★離したら送る。押して離す＝一往復、が体で分かる形にする。
-          const said = $('say').value.trim();
+          /* ★言った言葉を捨てない（2026-09-06・実害のもう1つの経路）
+             ★sendTimer は「言い切らない文なら2500ms待つ」ので、
+               その前にマイクを止めると clearTimeout され、内容が消えていた。
+             → ★heardFinal に残っていれば、そちらを優先して必ず送る。 */
+          const said = (heardFinal.trim() || $('say').value.trim());
+          heardFinal = '';
           setState(null);
           if (said) speak(said);
           /* ★ここでは警告を出さない（2026-09-04・実害）

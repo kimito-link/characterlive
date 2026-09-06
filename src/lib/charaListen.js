@@ -35,6 +35,58 @@
  * 使えるかどうか（例外にしない。使えないのは普通のこと）。
  * @returns {{ok:boolean, reason?:string}}
  */
+/**
+ * ★端末内で音声認識できるか調べる（2026-09-06・調査で判明した最大の収穫）
+ *
+ *   ★実は「全部ローカル」が成立していなかった。
+ *     従来の webkitSpeechRecognition は**音声をGoogleのサーバーへ送っている**。
+ *     この製品は「返答も音声合成もローカル」と言いながら、
+ *     ★聞いた声だけ外に出ていた。
+ *
+ *   Chrome 139（2025年8月）で on-device Web Speech API が出荷され、
+ *   日本語(ja-JP)も対応した。これを使えば本当にローカルになる。
+ *
+ *   ★もう1つの利点: quality を指定できる。
+ *     既定は 'command'（短い孤立フレーズ想定）。★会話には 'dictation' が適切で、
+ *     認識精度が変わる可能性がある。
+ *
+ *   ★macOS に既知の不具合があるため、使えなければ黙って従来方式に戻す
+ *     （使えないことは異常ではない）。
+ *
+ * @returns {Promise<{ok:boolean, state:string, reason?:string}>}
+ */
+export async function probeLocalRecognition() {
+  const SR = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+  if (!SR?.available) {
+    return { ok: false, state: 'unsupported', reason: 'このChromeは端末内認識に未対応' };
+  }
+  try {
+    const state = await SR.available({
+      langs: ['ja-JP'], processLocally: true, quality: 'dictation'
+    });
+    if (state === 'available') return { ok: true, state };
+    return { ok: false, state, reason: `端末内認識は ${state}` };
+  } catch (e) {
+    return { ok: false, state: 'error', reason: String(e?.message || e) };
+  }
+}
+
+/**
+ * ★端末内認識のモデルを取得する。**クリックの中から呼ぶこと**。
+ *   （内蔵AIと同じく、ユーザー操作が要る可能性がある）
+ * @returns {Promise<{ok:boolean, reason?:string}>}
+ */
+export async function installLocalRecognition() {
+  const SR = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+  if (!SR?.install) return { ok: false, reason: 'この環境では取得できません' };
+  try {
+    const ok = await SR.install({ langs: ['ja-JP'], processLocally: true });
+    return { ok: !!ok };
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e) };
+  }
+}
+
 export function canListen() {
   const SR = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
   if (!SR) return { ok: false, reason: 'このブラウザは音声入力に対応していません' };
@@ -59,6 +111,7 @@ export function startListening(opts) {
   const rec = new SR();
   rec.lang = opts.lang || 'ja-JP';
   rec.continuous = true;
+  applyLocalMode(rec, opts);
   // ★途中経過を受け取る。人は聞きながら次を考えるので、終わりを待つと間に合わない
   //   （Levinson: 隙間200msなのに発話の計画に600ms要る）。
   rec.interimResults = true;
@@ -167,6 +220,7 @@ export function createPushToTalk(opts) {
       rec = new SR();
       rec.lang = opts.lang || 'ja-JP';
       rec.continuous = true;
+      applyLocalMode(rec, opts);
       rec.interimResults = true;
       rec.onresult = (ev) => {
         for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
@@ -195,7 +249,25 @@ export function createPushToTalk(opts) {
         opts.onState?.('error');
       };
       rec.onstart = () => opts.onState?.('listening');
-      rec.onend = () => { opts.onState?.('stopped'); rec = null; };
+      /* ★押している間は onend で必ず再起動する（2026-09-06・実害の主因）
+
+         ユーザー報告:「しゃべっても今ログが反映されなくなってる」
+
+         ★真因: Chrome は**押しっぱなしでも無音が続くと onend を発火する**。
+           ここで再起動していなかったため、一度黙るとマイクが死に、
+           「押しているのに聞いていない」状態のまま戻らなかった。
+
+         ★常時オン版(startListening)には同じ再起動ロジックが既にある。
+           PTT版にだけ無かった。「押していないのに聞き続けない」ことを
+           優先しすぎて、**押している間に止まる**方を見落としていた。 */
+      rec.onend = () => {
+        if (!holding) { opts.onState?.('stopped'); rec = null; return; }
+        // ★即座に start() すると失敗しやすいので少し置く（常時オン版と同じ）
+        setTimeout(() => {
+          if (!holding) return;
+          try { rec?.start(); } catch { /* 二重startは無視（既に動いている） */ }
+        }, 400);
+      };
       try { rec.start(); } catch (e) {
         holding = false;
         opts.onError?.(String(e?.message || e));
@@ -212,4 +284,21 @@ export function createPushToTalk(opts) {
 
     get isHolding() { return holding; }
   };
+}
+
+/**
+ * ★端末内処理を有効にする（使えるときだけ）。
+ *
+ *   ★呼び出し側が preferLocal:true を渡し、かつ probeLocalRecognition が
+ *     'available' を返していたときだけ設定する。
+ *   ★闇雲に true にすると、未対応環境で認識が始まらなくなる。
+ *
+ * @param {any} rec
+ * @param {{ preferLocal?:boolean }} opts
+ */
+function applyLocalMode(rec, opts = {}) {
+  if (!opts.preferLocal) return;
+  try {
+    rec.processLocally = true;
+  } catch { /* 未対応なら黙って従来方式（サーバー処理）で動く */ }
 }

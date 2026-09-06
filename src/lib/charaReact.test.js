@@ -20,55 +20,23 @@ import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js
      指摘を受けてゲーム語を足し、雑談・作業も足し、分類は9種類に増えた。
      ★増やすほど「その分類らしい返事」しか出なくなる。枠を広げても檻は檻。
    → 拾うのは**言葉そのもの**だけ。返し方はモデル（人格）に委ねる。 */
-describe('★拾うのは言葉だけ（分類しない）', () => {
-  it('相手が言った語を拾う', () => {
-    expect(findSorePoint('このボスむずい').point).toBe('むずい');
-    expect(findSorePoint('やっとできた').point).toBe('できた');
-    expect(findSorePoint('なんか眠くなってきた').point).toBe('眠');
-    expect(findSorePoint('もうやめたい').point).toBe('やめたい');
+/* ★語マッチは廃止した（2026-09-06・実害）
+   実害:「配信ってどう【やった】らうまくなる？」→ りんく「やったね、素晴らしいのだ！」
+   ★同じ構造で8件中6件が誤爆した。特に否定形を肯定として拾っていた:
+     「痛くないよ」→"痛" /「眠くない？」→"眠" /「難しくないよ」→"難し"
+   ★日本語の否定・活用を正規表現で扱うのが無理筋だった。
+   → 廃止。人格(system プロンプト231字)に委ねる。 */
+describe('★語マッチを復活させない（誤爆の温床）', () => {
+  it('★何も拾わない', () => {
+    for (const t of ['配信ってどうやったらうまくなる？', '痛くないよ', '眠くない？',
+                     '難しくないよ', '終わったあとに何する？', 'このボスむずい']) {
+      expect(findSorePoint(t).point).toBe(null);
+    }
   });
 
-  it('★何をしていても拾える（配信・作業・雑談を問わない）', () => {
-    expect(findSorePoint('ここ難しいんだよね').point).toBeTruthy();   // 作業
-    expect(findSorePoint('どっちの色がいいかな').point).toBeTruthy(); // お絵かき
-    expect(findSorePoint('お腹すいた').point).toBeTruthy();           // 日常
-  });
-
-  it('無ければ拾わない（無理に探すと関係ない語に反応する）', () => {
-    expect(findSorePoint('今日はいい天気').point).toBe(null);
-  });
-
-  it('★分類は返さない（kind に意味を持たせない）', () => {
-    const a = findSorePoint('このボスむずい');
-    const b = findSorePoint('やっとできた');
-    expect(a.kind).toBe(b.kind);   // 同じ。分類していない証拠
-  });
-});
-
-describe('★指示は1行だけ（型を決めない）', () => {
-  const sore = findSorePoint('このボスむずい');
-
-  it('相手が言った言葉を渡すだけ', () => {
-    expect(reactDirective({ charaId: 'rinku', ...sore })).toBe('相手は「むずい」と言った。そこに反応する。');
-  });
-
-  it('★3人とも同じ指示（返し方は人格が決める）', () => {
-    const a = reactDirective({ charaId: 'rinku', ...sore });
-    const b = reactDirective({ charaId: 'konta', ...sore });
-    const c = reactDirective({ charaId: 'tanunee', ...sore });
-    expect(a).toBe(b);
-    expect(b).toBe(c);
-  });
-
-  it('★返し方を指定しない（「問いを返せ」等を書かない）', () => {
-    const d = reactDirective({ charaId: 'tanunee', ...sore });
-    expect(d).not.toMatch(/問いを返す/);
-    expect(d).not.toMatch(/言いにくいこと/);
-    expect(d).not.toMatch(/見ていない面/);
-  });
-
-  it('拾えなければ何も足さない', () => {
-    expect(reactDirective({ charaId: 'rinku', point: null, kind: 'none' })).toBe('');
+  it('★プロンプトに何も足さない（返し方は人格が決める）', () => {
+    expect(reactDirective()).toBe('');
+    expect(reactDirective({ charaId: 'rinku', point: 'むずい' })).toBe('');
   });
 });
 

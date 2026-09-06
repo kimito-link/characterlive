@@ -17,6 +17,7 @@
 import { PERSONAS, PERSONA_IDS, buildSystemPrompt, DEFAULT_MODE } from './charaPersona.v1.js';
 import { detectAddressedChara } from './charaLiveState.js';
 import { readMood, moodDirective } from './charaMood.js';
+import { toneDirective } from './charaVoiceTone.js';
 import { readAddress, narrowContext, addressDirective } from './charaAddress.js';
 import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js';
 
@@ -65,7 +66,7 @@ export function pickResponder(text, lastSpeaker = null) {
  * ★短さを強制する（プロンプト側でも指示しているが、モデルが長く返すことがあるので後段でも切る）。
  *   声で読むので長い返事は体験を壊す。Grokのプロンプトも全ペルソナで "keep your responses brief"。
  *
- * @param {{ charaId:CharaId, text:string, mode?:string, history?:Array<{who:string,text:string}>, relay?:string }} input
+ * @param {{ charaId:CharaId, text:string, mode?:string, history?:Array<{who:string,text:string}>, relay?:string, tone?:'low'|'flat'|'high' }} input
  * @returns {Promise<{ok:boolean, text?:string, ms?:number, reason?:string}>}
  */
 export async function think(input) {
@@ -123,13 +124,17 @@ export async function think(input) {
               人間が反応せざるを得ない圧力」
        ★急所（相手が一番気にしている一語）を拾って、そこに触れさせる。
          触れないと「わかってくれない」で終わる。 */
+    /* ★声の調子を渡す（2026-09-06・ユーザーの観察）
+       「grokは声の出し方で元気があるとかないとかも返答かえてたきがする」
+       ★音量は前から測っていたのに、波形を描くだけで捨てていた。
+       ★「元気がない」と説明しない。どう振る舞うかだけ書く（mood と同じ設計）。 */
     situation: (address
       ? [address, input.relay].filter(Boolean).join(' ')
       /* ★mood と react を両方入れると上限を超える（実測309字・上限350）。
          ★急所が拾えているなら react を優先する。
            mood は「落ち込んでいるらしい」という粗い判定だが、
            react は「何を気にしているか」まで特定できているため。 */
-      : [react || situation, input.relay].filter(Boolean).join(' ')) || undefined
+      : [toneDirective(input.tone), situation, input.relay].filter(Boolean).join(' ')) || undefined
   });
 
   // 直近のやりとりだけ渡す（内蔵AIは小型なので長い履歴は毒）
