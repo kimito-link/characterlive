@@ -11,76 +11,67 @@
 import { describe, it, expect } from 'vitest';
 import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js';
 
-describe('★急所を拾う（要約ではなく、痛いところ）', () => {
-  it('数字が伸びない話を拾う（配信者に最も重い）', () => {
-    expect(findSorePoint('フォロワー増えない').point).toBe('増えない');
-    expect(findSorePoint('今日は0人だった').point).toBe('0人');
+/* ★★分類を減らした（2026-09-06・ユーザー判断）
+   体験価値の3本柱に照らすと、分類を増やすことは
+   ③「予測が外れる」と**逆方向**だった。
+   分類が細かいほど、返答は分類に沿った予測可能なものになる。
+
+   ★経緯: 最初は「増えない/0人」だけ拾っていた（製品の芯と矛盾）。
+     指摘を受けてゲーム語を足し、雑談・作業も足し、分類は9種類に増えた。
+     ★増やすほど「その分類らしい返事」しか出なくなる。枠を広げても檻は檻。
+   → 拾うのは**言葉そのもの**だけ。返し方はモデル（人格）に委ねる。 */
+describe('★拾うのは言葉だけ（分類しない）', () => {
+  it('相手が言った語を拾う', () => {
+    expect(findSorePoint('このボスむずい').point).toBe('むずい');
+    expect(findSorePoint('やっとできた').point).toBe('できた');
+    expect(findSorePoint('なんか眠くなってきた').point).toBe('眠');
+    expect(findSorePoint('もうやめたい').point).toBe('やめたい');
   });
 
-  it('自己否定を拾う（ここを外すと「わかってくれない」になる）', () => {
-    expect(findSorePoint('自分には向いてないのかも').point).toBe('向いてない');
+  it('★何をしていても拾える（配信・作業・雑談を問わない）', () => {
+    expect(findSorePoint('ここ難しいんだよね').point).toBeTruthy();   // 作業
+    expect(findSorePoint('どっちの色がいいかな').point).toBeTruthy(); // お絵かき
+    expect(findSorePoint('お腹すいた').point).toBeTruthy();           // 日常
   });
 
-  it('続けるかどうかの迷いを拾う（最も反応が大きい）', () => {
-    expect(findSorePoint('もうやめたい').kind).toBe('quitting');
-  });
-
-  /* ★「他人との比較」の分類は外した（2026-09-06）
-     ★話題の中心を「悩み」から「いま起きていること」に移したため。
-       比較の話は quitting / self-doubt で拾えれば足りる。
-       分類を増やすより、日常の発話を拾える方が優先。 */
-  it('★悩み以外の日常を拾えることの方が大事', () => {
-    expect(findSorePoint('このボスむずい').kind).toBe('stuck');
-    expect(findSorePoint('やっとできた').kind).toBe('win');
-    expect(findSorePoint('なんか眠くなってきた').kind).toBe('body');
-  });
-
-  it('急所が無ければ何も返さない（無理に探さない）', () => {
+  it('無ければ拾わない（無理に探すと関係ない語に反応する）', () => {
     expect(findSorePoint('今日はいい天気').point).toBe(null);
   });
+
+  it('★分類は返さない（kind に意味を持たせない）', () => {
+    const a = findSorePoint('このボスむずい');
+    const b = findSorePoint('やっとできた');
+    expect(a.kind).toBe(b.kind);   // 同じ。分類していない証拠
+  });
 });
 
-describe('★同じ急所でも、キャラで答えの方向が変わる', () => {
-  const sore = findSorePoint('フォロワー増えない');
+describe('★指示は1行だけ（型を決めない）', () => {
+  const sore = findSorePoint('このボスむずい');
 
-  it('りんくは気持ちを言葉にする（解決しようとしない）', () => {
-    const d = reactDirective({ charaId: 'rinku', ...sore });
-    expect(d).toMatch(/気持ちを言葉にする/);
-    expect(d).toMatch(/解決しようとしない/);
+  it('相手が言った言葉を渡すだけ', () => {
+    expect(reactDirective({ charaId: 'rinku', ...sore })).toBe('相手は「むずい」と言った。そこに反応する。');
   });
 
-  it('こん太は見落としを指す', () => {
-    expect(reactDirective({ charaId: 'konta', ...sore })).toMatch(/見ていない面/);
+  it('★3人とも同じ指示（返し方は人格が決める）', () => {
+    const a = reactDirective({ charaId: 'rinku', ...sore });
+    const b = reactDirective({ charaId: 'konta', ...sore });
+    const c = reactDirective({ charaId: 'tanunee', ...sore });
+    expect(a).toBe(b);
+    expect(b).toBe(c);
   });
 
-  it('★たぬ姉は問いを返す（次の一手を相手に渡す）', () => {
+  it('★返し方を指定しない（「問いを返せ」等を書かない）', () => {
     const d = reactDirective({ charaId: 'tanunee', ...sore });
-    expect(d).toMatch(/言いにくいこと/);
-    expect(d).toMatch(/問いを返す/);
+    expect(d).not.toMatch(/問いを返す/);
+    expect(d).not.toMatch(/言いにくいこと/);
+    expect(d).not.toMatch(/見ていない面/);
   });
 
-  it('★全員が急所に触れる（触れないと当たり障りのない返事になる）', () => {
-    for (const id of ['rinku', 'konta', 'tanunee']) {
-      expect(reactDirective({ charaId: id, ...sore })).toContain('増えない');
-    }
-  });
-
-  it('★問いを返すのはたぬ姉だけ（全員が質問すると尋問になる）', () => {
-    expect(reactDirective({ charaId: 'rinku', ...sore })).not.toMatch(/問いを返す/);
-    expect(reactDirective({ charaId: 'konta', ...sore })).not.toMatch(/問いを返す/);
-  });
-
-  it('急所が無ければ何も足さない（プロンプトを無駄に長くしない）', () => {
-    expect(reactDirective({ charaId: 'tanunee', point: null, kind: 'none' })).toBe('');
+  it('拾えなければ何も足さない', () => {
+    expect(reactDirective({ charaId: 'rinku', point: null, kind: 'none' })).toBe('');
   });
 });
 
-/* ★会議(6体)が警告した危険パターン（2026-09-06）
-   実際に検証したら、この5つが全部素通りしていた。防御は穴だらけだった。
-     nemotron-550b:「小型モデルが"面白い正論"と"暴力的な悪口"の境界を判別できず、
-                     配信者が本気で凹む/キレて配信終了/炎上」
-     qwen3.8-27b:  「視聴者の目線を批判者の目線と誤解釈し、
-                     泣き言に対して冷淡な返答をして配信者の感情を殺す」 */
 describe('★会議が警告した危険パターンを止める', () => {
   it('★視聴者を人質に取らない（本人にはどうにもできない＝逃げ道が無い）', () => {
     expect(checkNotTooHarsh('あの発言でチャンネル離脱者が増えるぞ').ok).toBe(false);
