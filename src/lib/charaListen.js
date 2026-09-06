@@ -211,6 +211,14 @@ export function createPushToTalk(opts) {
 
   /** @type {any} */ let rec = null;
   let holding = false;
+  /* ★キャラが喋っている間は聞かない（2026-09-06・実害）
+     ユーザー報告:「キャラ喋った声が入力されてる」
+     ★mute/unmute は常時オン版(startListening)にはあったが、
+       **PTT版には実装されていなかった**。しかも talk.html から一度も
+       呼ばれていなかった（実測0件）。
+     ★マイクとスピーカーが同じ部屋にある以上、これは必ず起きる。
+       調査でも「バージイン検出の89%が誤検出で、原因は自分の声の回り込み」。 */
+  let muted = false;
 
   return {
     /** ボタンを押した/キーを押した瞬間 */
@@ -223,6 +231,8 @@ export function createPushToTalk(opts) {
       applyLocalMode(rec, opts);
       rec.interimResults = true;
       rec.onresult = (ev) => {
+        // ★キャラが喋っている間の認識結果は捨てる（自分の声で誤爆しない）
+        if (muted) return;
         for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
           const r = ev.results[i];
           const text = String(r[0]?.transcript || '').trim();
@@ -281,6 +291,12 @@ export function createPushToTalk(opts) {
       holding = false;
       try { rec?.stop(); } catch { /* no-op */ }
     },
+
+    /** ★キャラが喋る前に呼ぶ。再生中の認識結果を捨てる。 */
+    mute() { muted = true; },
+    /** ★キャラが喋り終わったら呼ぶ。 */
+    unmute() { muted = false; },
+    get isMuted() { return muted; },
 
     get isHolding() { return holding; }
   };

@@ -328,7 +328,13 @@
             play.disabled = true;
             try {
               const wav = await synthesize(sampleLine(id), { styleId: Number(sel.value) });
-              if (wav) { playing?.stop(); playing = playWav(wav); await playing.done; }
+              if (wav) {
+                playing?.stop();
+                ptt?.mute();   // ★試聴中もマイクに入れない
+                playing = playWav(wav);
+                await playing.done;
+                setTimeout(() => ptt?.unmute(), 250);
+              }
             } finally { play.disabled = false; }
           };
           sel.addEventListener('change', () => {
@@ -441,10 +447,12 @@
               live.onStreamerAddressed({
                 prompt: t, answer: res.text, durationMs: 60000, charaId: id
               });
+              ptt?.mute();   // ★キャラが喋る間はマイクを塞ぐ
               playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
               // ★ここで待つ。次の子は前の子が鳴り終わってから。
               await playing.done;
               live.onCommentSpokenEnd();
+              setTimeout(() => ptt?.unmute(), 250);
               live.closeChara(id);   // ★次の子に移る前に閉じる（並べない）
             } else {
               live.onStreamerAddressed({ prompt: t, answer: res.text, durationMs: 4000, charaId: id });
@@ -511,15 +519,16 @@
         setState('thinking', '考えています…');
         live.beginThinking({ charaId: who });
 
-        /* ★先に相槌を鳴らして、考えている間の無音を埋める（2026-09-06）
-           ★人間も同じことをしている: 隙間200msで返すのに発話の計画に600ms要る
-             （Levinson）。その差を埋めているのが相槌と言いよどみ。
-           ★毎回は鳴らさない。前回が速かったときは挟まない
-             （速いのに相槌を入れると、かえって遅くなる）。 */
-        if ($('voice').checked && voiceOk && shouldBackchannel({ lastThinkMs })) {
-          const bc = playBackchannel(who, { seed: history.length });
-          if (bc) playing = bc;
-        }
+        /* ★相槌は**やめた**（2026-09-06・実害）
+
+           ユーザー報告:「こんたが けーえ ってすぐさけぶ。
+                         そのあと、めちゃおくれてこうなる。grokはこんな風にならない」
+
+           ★私は「遅さを相槌で隠す」つもりだったが、逆効果だった:
+             - 先に「へえ！」と叫び、そのあと11秒待たされる
+             - ★相槌は遅さを隠さない。**遅さを目立たせる**道具になっていた
+           ★Grokは相槌を挟まない。速いから要らない。
+             隠すのではなく、速くするのが正しい。 */
 
         const res = await think({ charaId: who, text: t, mode: $('mode').value, history, tone: lastTone });
         lastThinkMs = res.ms ?? lastThinkMs;
@@ -550,9 +559,18 @@
               // ★声を出す子と、吹き出しに出る名前を必ず一致させる
               charaId: who
             });
+            /* ★キャラが喋る間はマイクを塞ぐ（2026-09-06・実害）
+               ユーザー報告:「キャラ喋った声が入力されてる」
+               ★マイクとスピーカーが同じ部屋にある以上、必ず起きる。
+                 仕組みは前からあったのに、一度も呼んでいなかった。 */
+            ptt?.mute();
             playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
             await playing.done;
             live.onCommentSpokenEnd();
+            /* ★少し待ってから解除する。
+               再生が終わった瞬間はまだ残響が入るため（実測で決めた値ではないので、
+               入力に混ざるようなら伸ばす）。 */
+            setTimeout(() => ptt?.unmute(), 250);
             /* ★吹き出しを閉じる（2026-09-06・実害「ふきだしがでっぱなし」）
                ★onCommentSpokenEnd は相槌(react)しか閉じない。
                  通常の返事は answer なので閉じられず、durationMs=60000 のまま

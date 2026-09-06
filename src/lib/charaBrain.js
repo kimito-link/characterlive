@@ -113,29 +113,26 @@ export async function think(input) {
     ? addressDirective({ kind: addressed.kind, charaId, prevName: ctx.prevName, prevLine: ctx.prevLine })
     : '';
 
-  const system = buildSystemPrompt(charaId, {
-    mode: input.mode || DEFAULT_MODE,
-    /* ★指示が重なるとプロンプト上限を超える（実測338字・上限は320〜350）。
-       ★名指しの指示は「1文だけ」「役割」まで含んでいるので、
-         名指しがあるときは mood の細かい禁止文を落とす。
-         受け止める姿勢は名指し側にも入っている。 */
-    /* ★「反応したくなる返答」の指示を足す（2026-09-06・Grokの助言）
-       Grok:「欠けてるのはレイテンシじゃなく、相手の予想を壊す力と、
-              人間が反応せざるを得ない圧力」
-       ★急所（相手が一番気にしている一語）を拾って、そこに触れさせる。
-         触れないと「わかってくれない」で終わる。 */
-    /* ★声の調子を渡す（2026-09-06・ユーザーの観察）
-       「grokは声の出し方で元気があるとかないとかも返答かえてたきがする」
-       ★音量は前から測っていたのに、波形を描くだけで捨てていた。
-       ★「元気がない」と説明しない。どう振る舞うかだけ書く（mood と同じ設計）。 */
-    situation: (address
-      ? [address, input.relay].filter(Boolean).join(' ')
-      /* ★mood と react を両方入れると上限を超える（実測309字・上限350）。
-         ★急所が拾えているなら react を優先する。
-           mood は「落ち込んでいるらしい」という粗い判定だが、
-           react は「何を気にしているか」まで特定できているため。 */
-      : [toneDirective(input.tone), situation, input.relay].filter(Boolean).join(' ')) || undefined
-  });
+  /* ★★system プロンプトは固定する（2026-09-06・11秒問題の真因）
+
+     実測: 「こんにちは」への返事に **11337ms** かかっていた。
+     ★以前の実測では 初回10801ms → 2回目以降1241ms だったので、
+       ★毎回「初回」になっている＝セッションが毎回作り直されていた。
+
+     ★真因: situation（気分・声の調子・名指し）を system に入れていた。
+       これらは発話ごとに変わるので、system 文字列が毎回変わり、
+       acquireSession の `held.system === system` が毎回 false になっていた。
+       ★セッション使い回しの実装はあったのに、効いていなかった。
+
+     → ★人格だけを system に入れる（これは変わらない＝作り直されない）。
+       ★状況（気分・声・名指し・リレー）は **user 側**に回す。
+         そちらは毎回変わってよい（セッションは作り直されない）。 */
+  const system = buildSystemPrompt(charaId, { mode: input.mode || DEFAULT_MODE });
+
+  // ★毎回変わる状況は user 側にまとめる
+  const situationLine = (address
+    ? [address, input.relay].filter(Boolean).join(' ')
+    : [toneDirective(input.tone), situation, input.relay].filter(Boolean).join(' '));
 
   // 直近のやりとりだけ渡す（内蔵AIは小型なので長い履歴は毒）
   // ★履歴にも他の子の名前を出さない（プロンプト本体と同じ理由・Grokの指摘）
@@ -165,8 +162,10 @@ export async function think(input) {
   // ★「〜ですね」で受け流させない（ユーザー要望:「superficial な返答じゃなく」）
   //   ★オウム返しを名指しで禁じる。Grokのプロンプトが決まり文句を名指しで
   //     禁止しているのと同じ手法（曖昧に「深く返せ」と言っても効かない）。
-  const ask =
-    `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`;
+  const ask = [
+    situationLine,
+    `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`
+  ].filter(Boolean).join('');
   const user = hist
     ? `これまでの会話:
 ${hist}
