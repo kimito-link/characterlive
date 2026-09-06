@@ -7,6 +7,8 @@
   "main": "src/index.js",
   "scripts": {
     "test": "vitest run",
+    "check:inline-script-syntax": "node ../web-ios-android/templates/diagnostics/check-inline-script-syntax.mjs .",
+    "check:inline-script-syntax:selftest": "node ../web-ios-android/templates/diagnostics/check-inline-script-syntax.mjs --selftest",
     "test:watch": "vitest",
     "demo": "node scripts/serve-demo.mjs",
     "domain": "node ../ai-hub/bin/domain-connect.mjs characterlive.link",
