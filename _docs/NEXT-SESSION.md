@@ -2,6 +2,9 @@
 
 > ★実物の録画4本を見せてもらって真因が確定した。**推測ではなく実データ**。
 > このファイルを最初に読む。
+>
+> ★2026-09-07 追記: 会話設計の根拠は `RESEARCH-companion-voice-2026-09-07.md`（採用5・禁止5・要判断）に集約した。
+> 毎朝の日課タスクが `RESEARCH-LEDGER.md` に実例を足す。Grok 側の結果は `inbox/` に置く。
 
 ---
 
@@ -153,3 +156,82 @@ noiseSuppression: true,   // 定常音を雑音として抑制
 - 254テスト green
 - 全部コミット済み（未コミットの変更なし）
 - 直近のコミット: 「11秒問題の真因を直し、相槌とエコーをやめる」
+
+---
+
+## ★頭脳の切り替え（Claude Fable 5.1）を入れた（2026-09-07・鍵待ち）
+
+「文脈を持っていない」真因への直接の対策として、頭脳を **内蔵AI / Claude Fable 5.1** で
+切り替えられるようにした。★同じ会話を両方で試して差を見るのが目的。
+
+| ファイル | 役割 |
+|---|---|
+| `src/lib/charaCloudRequest.js` | 依頼の組み立て（純関数・テスト済み）。model / effort=low / fallbacks / 音声認識の崩れへの指示 |
+| `api/chat.js` | サーバ側の呼び出し口。鍵は環境変数 `ANTHROPIC_API_KEY` だけ。Vercel が自動で関数化 |
+| `scripts/serve-demo.mjs` | ローカルでも `/api/chat` を同じ handler に回す |
+| `src/lib/charaBrain.js` | `setBrain('nano'|'fable')`。fable のときは履歴を 30ターン×200字 渡す（内蔵AIは 10×28） |
+| `talk.html` | 「頭脳」セレクト。`?brain=fable` でも選べる。選択は localStorage に残る |
+
+### ★確認済み（実画面・2026-09-07）
+- 鍵なしで Fable を選ぶと状態に「サーバに ANTHROPIC_API_KEY がありません」と出る
+- その状態で話しかけても黙らない（決め打ち＋「AI未準備」表示）
+- 切り替えで状態表示とログが更新される。コンソールにエラーなし
+- `npm test` 257 green / インラインJS構文検査 OK
+
+### ★未確認（鍵が無いので実呼び出しはまだ）
+- Fable 5.1 の実応答・所要時間（effort=low の体感）
+- Vercel で `api/` が関数として動くか（`installCommand: null` を外した。`outputDirectory: "."` と
+  `api/` の共存は未検証。ソースが静的配信されても鍵は入っていないので害はない）
+
+### ★試し方（ローカル）
+鍵はクリップボード経由で受け取り、環境変数として起動時に渡す（ファイルに書かない）:
+```
+ANTHROPIC_API_KEY=... npm run talk   → http://localhost:5173/talk.html?brain=fable
+```
+
+---
+
+## ★調査で見つかった実害（2026-09-07・夕）
+
+`charaBrain.think()` は内蔵AIの `session.prompt()` の戻り値を検証していない。
+開発用ブラウザ（Claude アプリ内 Chromium）ではスタブの内蔵AIが
+「On-device model is not available in Chromium…」という**英語のエラー文を返事として返し**、
+それが**そのまま こん太 の台詞として吹き出しに出た**（決め打ちにも落ちない）。
+★次の手: 戻り値が「入力プロンプトの一部を含む」「英語のエラー文らしい」なら失敗扱いにして
+`fallbackLine` へ落とす（`releaseSession` も呼ぶ）。詳細は `RESEARCH-companion-voice-2026-09-07.md` §9.3。
+
+---
+
+## ★「場を聞く」を talk.html に配線した（2026-09-08・未コミット）
+
+設計書 `ROOM-LISTENING-DESIGN.md` の「次にやること」のうち、talk.html 側と think() 側を実装した。
+
+| 何 | どこ |
+|---|---|
+| トグル「場を聞く」（既定OFF・マイク不許可なら無効） | talk.html の opts |
+| ON: 確定文を `appendFinal` で耳に貯めるだけ（sendTimer を動かさない・speak() に渡さない・履歴に「配信者」として入れない） | talk.html `onHeard` の先頭 |
+| 500ms ティッカー `tickRoom` → `resolveBeat` → fire なら `speakRoom` | talk.html |
+| `speakRoom`: pending を通らない。`isStaleBeat` で古い拍を捨てる。**決め打ち台詞は場では言わない**（雑音になる）。再生中は `ptt.mute()`＋`markBlackout` | talk.html |
+| 計器: `（拍）： lull 窓65字 入力?字 推論0ms …` の1行 | talk.html `speakRoom` |
+| `think({ room:{digest} })`: user ブロック＝場の話＋履歴＋roomAsk。「相手:「…」」行を作らない。急所拾い(react)を切る。内蔵AIは履歴を3ターンに削る（上限対策）。結果に `userChars` | `charaBrain.js` / 新規 `charaDigest.js`（純関数・テスト7本） |
+| マイク不許可なら場モードを自動で降ろす（再起動ループでログが埋まるのを実測して対処） | talk.html `onError` |
+| ★返事の形をした失敗を弾く `looksBrokenReply`（英語のエラー文・足場の復唱・入力の丸写し） | 新規 `charaReplyGuard.js`（テスト6本）→ `charaBrain.think()` |
+| 開発用の手 `globalThis.__room.hear(text)`（マイク無しで耳に流し込む・実装と同じ経路） | talk.html 末尾 |
+
+### ★確認済み（開発用ブラウザ・2026-09-08）
+- ON → `__room.hear` で3発話（計65字）→ 約2秒後に `（拍）： lull 窓65字 …` が出た。拍→荷物→think の経路が生きている
+- AI未準備のとき、場では喋らず「決め打ちに落ちた」とだけログに出る
+- マイク不許可のとき、場モードが自動で OFF になり、ログは2行で止まる
+- `npm test` 299 green（+13）／インラインJS構文検査 OK
+
+### ★未確認
+- 本物のマイク・本物の Nano での動作（開発用ブラウザはマイク不許可・Nano はスタブ）
+- Nano に窓140字＋履歴3ターン＋指示を渡したときの create 成功率（`入力N字` をログで見る。上限は実測320〜350字）
+- `looksBrokenReply` の実機での通し（単体テストのみ。開発用ブラウザの「AIを準備する」は JS クリックでは始まらない）
+- Fable 5.1（鍵なし）
+- isEcho（出た返事がオウム返しか）は次の段。★絶対値判定は禁止（Grok の正解を落とす）
+
+### ★次の手
+1. ユーザーの Chrome で `talk.html` を開き「場を聞く」ON → スペース等の音声をスピーカーで聞かせて `（拍）` の行を集める（拍理由の内訳・窓字数・入力字数・推論ms）
+2. `入力N字` が 320 を超える拍があれば `DIGEST_CHARS_NANO`（140）か `ROOM_HISTORY_TURNS_NANO`（3）を下げる。★理屈で決めず、ログの数で決める
+3. 返事がオウム返しなら charaDigest に `isEcho` を足す（LCS 比率 ≥0.5・断片の2倍未満。絶対値は使わない）

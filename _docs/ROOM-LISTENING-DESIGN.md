@@ -62,11 +62,11 @@ charaListen.js (onHeard: final断片)
       ↓ windowText / charsSince / lastHeardAt
 [2] charaBeat.js（実装済み）        ← 「いつ喋るか」を決める拍
       ↓ resolveBeat → {fire, reason}
-[3] charaDigest.js（★未実装）      ← 何を渡すか＋出た返事がオウム返しか
+[3] charaDigest.js（★2026-09-08 実装・isEcho は未）      ← 何を渡すか＋出た返事がオウム返しか
       ↓ buildRoomDigest / roomAsk / isEcho
 charaBrain.js think({ ..., room })  ← 既存。userブロックに「場の話」を1つ足すだけ
       ↓
-talk.html speakRoom()（★未実装・pendingキューを通らない）
+talk.html speakRoom()（★2026-09-08 実装・pendingキューを通らない）
 ```
 
 ---
@@ -112,6 +112,9 @@ lull/force  両方の経路が生きている   ★PASS
 ---
 
 ## ★次にやること（MVPの残り）
+
+> ★2026-09-08: talk.html への配線と think() の差分は実装済み（`NEXT-SESSION.md` 末尾に状態と未確認事項）。
+> 残りは `charaDigest.js` の `isEcho` と、本物のマイク・Nano での実測。
 
 ### `talk.html` への配線
 - トグル「場を聞く」（★既定OFF。PTT既定は守る）
