@@ -13,7 +13,9 @@
 
 | 設定 | なぜ |
 |---|---|
-| `buildCommand: null` / `installCommand: null` | ビルド不要。素のHTML/JSをそのまま配る |
+| `buildCommand: null` | ビルド不要。素のHTML/JSをそのまま配る |
+| `installCommand` は指定しない（既定の `npm install`） | ★2026-09-07 に `installCommand: null` を外した。`api/chat.js`（Claude Fable 5.1 の呼び出し口）が `@anthropic-ai/sdk` を使うため、Vercel に依存を入れさせる必要がある。静的部分には影響しない |
+| `api/` | Vercel が自動で Serverless Function にする。鍵は Vercel の環境変数 `ANTHROPIC_API_KEY`（ファイルに書かない）。未設定なら `/api/chat` は「鍵がありません」を返し、画面は決め打ち台詞に落ちる |
 | `outputDirectory: "."` | リポ直下がそのまま公開ディレクトリ |
 | `cleanUrls: true` | `/demo` で `/demo.html` が開ける |
 | `/src/(.*).js` に `Content-Type: text/javascript` | ★MIMEが違うとブラウザがESモジュールの実行を拒否し、**画面が真っ白になる**（LPはsrc/を直接importしている） |

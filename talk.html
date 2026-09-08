@@ -201,6 +201,15 @@
       </div>
 
       <div class="opts">
+        <!-- ★頭脳を選ぶ（2026-09-07）。同じ会話を内蔵AIと Fable 5.1 で試して差を見る。
+             URL に ?brain=fable を付けても選べる。選択は localStorage に残る。 -->
+        <label>
+          頭脳
+          <select id="brain">
+            <option value="nano">内蔵AI（Gemini Nano）</option>
+            <option value="fable">Claude Fable 5.1</option>
+          </select>
+        </label>
         <label>
           性格
           <select id="mode">
@@ -211,6 +220,10 @@
         </label>
         <label><input type="checkbox" id="voice" checked /> 声を出す</label>
         <label><input type="checkbox" id="chatter" /> 勝手に喋る</label>
+        <!-- ★場を聞く（2026-09-08）。既定OFF。ONの間はマイクを開きっぱなしにし、
+             聞こえた話を「耳」に貯めて、拍が来たら話題に一言だけ言う。
+             1対1の「押して話す」経路は変えない。 -->
+        <label title="配信の場（スペース・ニコ生など）の話を貯めて、間が来たら話題に一言だけ言います"><input type="checkbox" id="room" /> 場を聞く</label>
       </div>
       <p class="hint">
         ★名前を呼ぶとその子が答えます（りんく / こん太 / たぬ姉）。呼ばなければ誰かが答えます。
@@ -219,7 +232,7 @@
 
     <script type="module">
       import { startCharaLive } from './src/index.js';
-      import { think, pickResponder, probeAi, startAiDownload } from './src/lib/charaBrain.js';
+      import { think, pickResponder, probeAi, startAiDownload, setBrain, getBrain, BRAINS } from './src/lib/charaBrain.js';
       import { PERSONAS } from './src/lib/charaPersona.v1.js';
       import { isVoicevoxAlive, synthesize, playWav } from './src/lib/charaVoice.js';
       import {
@@ -233,6 +246,13 @@
       } from './src/lib/charaMicLevel.js';
       import { MIC_END_OF_SPEECH_MS } from './src/lib/charaIdle.js';
       import { resolveTurnEnd } from './src/lib/charaTurnEnd.js';
+      /* ★「場を聞く」の3部品（2026-09-08・_docs/ROOM-LISTENING-DESIGN.md）
+           耳(charaTranscript) → 拍(charaBeat) → 荷物(charaDigest) → think({ room }) */
+      import {
+        makeTranscript, appendFinal, markBlackout, windowText, charsSince, lastHeardAt
+      } from './src/lib/charaTranscript.js';
+      import { resolveBeat, isStaleBeat } from './src/lib/charaBeat.js';
+      import { buildRoomDigest } from './src/lib/charaDigest.js';
       import {
         warmUpBackchannels, playBackchannel, shouldBackchannel
       } from './src/lib/charaBackchannel.js';
@@ -356,12 +376,33 @@
         });
         $('voices').hidden = false;
       }
+      /* ★頭脳の選択を復元（2026-09-07）。URL の ?brain= が最優先、次に前回の選択。
+         ★既定は内蔵AI。Fable は鍵がサーバに無いと動かないので、勝手に既定にしない。 */
+      const BRAIN_KEY = 'characterlive.brain';
+      {
+        const fromUrl = new URLSearchParams(location.search).get('brain');
+        let saved = null;
+        try { saved = localStorage.getItem(BRAIN_KEY); } catch { /* no-op */ }
+        $('brain').value = setBrain(fromUrl || saved || 'nano');
+      }
+      function aiStatusHtml(ai) {
+        return `<span class="dot ${ai.ok ? 'ok' : 'ng'}"></span>AI: ${BRAINS[getBrain()].label} … ${ai.ok ? '使える' : (ai.reason || '使えない')}`;
+      }
+      function voiceStatusHtml(vv) {
+        return ` &nbsp; <span class="dot ${vv ? 'ok' : 'ng'}"></span>声: ${vv ? 'VOICEVOX 起動中' : 'VOICEVOX 未起動（文字だけ）'}`;
+      }
+      $('brain').addEventListener('change', async () => {
+        const chosen = setBrain($('brain').value);
+        try { localStorage.setItem(BRAIN_KEY, chosen); } catch { /* no-op */ }
+        $('status').innerHTML = aiStatusHtml({ ok: false, reason: '確認中…' }) + voiceStatusHtml(voiceOk);
+        const ai = await probeAi();
+        $('status').innerHTML = aiStatusHtml(ai) + voiceStatusHtml(voiceOk);
+        log('（頭脳）', `${BRAINS[chosen].label} に切り替え: ${ai.ok ? '使える' : (ai.reason || '使えない')}`);
+      });
       (async () => {
         const [ai, vv] = await Promise.all([probeAi(), isVoicevoxAlive()]);
         voiceOk = vv;
-        $('status').innerHTML =
-          `<span class="dot ${ai.ok ? 'ok' : 'ng'}"></span>AI: ${ai.ok ? '使える' : (ai.reason || '使えない')}` +
-          ` &nbsp; <span class="dot ${vv ? 'ok' : 'ng'}"></span>声: ${vv ? 'VOICEVOX 起動中' : 'VOICEVOX 未起動（文字だけ）'}`;
+        $('status').innerHTML = aiStatusHtml(ai) + voiceStatusHtml(vv);
         if (!vv) $('voice').checked = false;
         if (vv) buildVoicePicker();
         /* ★相槌を作り置きする（2026-09-06）
@@ -393,9 +434,7 @@
             if (r.ok) {
               btn.remove();
               const again = await probeAi();
-              $('status').innerHTML =
-                `<span class="dot ${again.ok ? 'ok' : 'ng'}"></span>AI: ${again.ok ? '使える' : (again.reason || '使えない')}` +
-                ` &nbsp; <span class="dot ok"></span>声: VOICEVOX 起動中`;
+              $('status').innerHTML = aiStatusHtml(again) + voiceStatusHtml(true);
             } else {
               btn.disabled = false;
               btn.textContent = 'AIを準備する';
@@ -587,6 +626,112 @@
       }
 
       /* ------------------------------------------------------------------ *
+       * ★場を聞く（2026-09-08・_docs/ROOM-LISTENING-DESIGN.md）
+       *
+       *   真因は「文脈を持っていない」こと。断片（「じゃないですか」）に1つずつ
+       *   返していたのがオウム返しと「止まる」の正体。
+       *   ★この経路は pending キューを通らない（古い断片への返事が後から出る原因）。
+       *   ★sendTimer も動かさない。聞こえた確定文は耳(transcript)に貯めるだけ。
+       *   ★拍は 500ms ティッカーで見る（測り方を実装と揃える。発話のたびに見ると
+       *     ROOM_LULL_MS=1200 でも通ってしまう偽の緑になる）。
+       * ------------------------------------------------------------------ */
+      let roomOn = false;
+      let transcript = makeTranscript();
+      /** 前回の拍（発火した時刻）。charsSince の起点 */
+      let lastBeatAt = 0;
+      /** 前回キャラが喋り終えた時刻 */
+      let lastCharaAt = null;
+      let roomBusy = false;
+      let roomTicker = null;
+
+      function tickRoom() {
+        if (!roomOn || roomBusy || busy) return;
+        const now = Date.now();
+        const beat = resolveBeat({
+          nowMs: now,
+          lastHeardAt: lastHeardAt(transcript),
+          charsSinceLastBeat: charsSince(transcript, lastBeatAt),
+          lastCharaAt
+        });
+        if (beat.fire) speakRoom(beat, now);
+      }
+
+      /**
+       * 場に一言だけ言う。★pending を使わない・断片を主役にしない。
+       * @param {{fire:boolean, reason:string}} beat
+       * @param {number} resolvedAt 拍を決めた時刻
+       */
+      async function speakRoom(beat, resolvedAt) {
+        roomBusy = true;
+        lastBeatAt = resolvedAt;
+        try {
+          const window_ = windowText(transcript, { nowMs: resolvedAt, spanMs: 60_000, maxChars: 800 });
+          const digest = buildRoomDigest({ window: window_, brain: getBrain() });
+          if (!digest) return;
+
+          const who = pickResponder('', lastSpeaker);
+          const persona = PERSONAS[who];
+          setState('thinking', `${persona.displayName}が考えています…`);
+          live.beginThinking({ charaId: who });
+          const res = await think({
+            charaId: who, text: '', mode: $('mode').value, history, tone: lastTone,
+            room: { digest }
+          });
+          live.endThinking();
+
+          // ★決めてから合成が終わるまでに場が進みすぎたら捨てる（古い話への返事を防ぐ）
+          const stale = isStaleBeat({ resolvedAt, nowMs: Date.now() });
+          /* ★計器: 拍理由 / 窓字数 / 入力字数 / 推論ms を1行で出す。
+             ★入力字数は Nano の上限（実測320〜350字）を超えていないかを見るため。
+               超えると create が失敗して決め打ちに落ち、画面上は正常に見える（潜伏型）。 */
+          log('（拍）', `${beat.reason} 窓${digest.length}字 入力${res.userChars ?? '?'}字 推論${res.ms}ms`
+            + (stale ? ' 古いので捨てた' : '')
+            + (res.fallback ? ` 決め打ちに落ちた（${res.reason || ''}）` : ''));
+          /* ★場では決め打ち台詞を言わない。1対1なら「黙らない」が正しいが、
+             場に向かって毎拍「ボク見てたよ」を言うのは雑音になる。 */
+          if (!res.ok || stale || res.fallback) return;
+
+          lastSpeaker = who;
+          history.push({ who: persona.displayName, text: res.text });
+          log(persona.displayName, res.text, res.ms);
+          await playReply(who, res.text, digest.slice(-40));
+        } finally {
+          roomBusy = false;
+          if (roomOn) setState('listening', '場を聞いています…');
+          else setState(null);
+        }
+      }
+
+      /**
+       * 返事を声にして出す（場モード用）。
+       * ★再生中はマイクを塞ぎ、その区間を耳に「…」として記録する
+       *   （聞けていない所を前後と繋げて復元させない）。
+       */
+      async function playReply(who, text, promptText) {
+        const persona = PERSONAS[who];
+        if ($('voice').checked && voiceOk) {
+          setState('speaking', `${persona.displayName}が話しています`);
+          const wav = await synthesize(text, { ...persona.voice, styleId: voices[who] });
+          if (wav) {
+            playing?.stop();
+            live.onStreamerAddressed({ prompt: promptText, answer: text, durationMs: 60000, charaId: who });
+            ptt?.mute();
+            const fromMs = Date.now();
+            playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
+            await playing.done;
+            live.onCommentSpokenEnd();
+            setTimeout(() => ptt?.unmute(), 250);
+            transcript = markBlackout(transcript, { fromMs, toMs: Date.now() + 250 });
+            lastCharaAt = Date.now();
+            live.closeChara(who);
+            return;
+          }
+        }
+        live.onStreamerAddressed({ prompt: promptText, answer: text, durationMs: 4000, charaId: who });
+        lastCharaAt = Date.now();
+      }
+
+      /* ------------------------------------------------------------------ *
        * ★マイク（押している間だけ聞く）
        *
        *   Grok本人の助言(2026-09-04・音声で相談):
@@ -664,6 +809,14 @@
                     確定前に送ると**言った言葉の一部しか残らない**
                → ★確定した文だけでタイマーを動かす。
                  途中経過は画面に映すだけで、送信の判断には使わない。 */
+            /* ★場を聞くモード（2026-09-08）: 確定文を耳に貯めるだけ。
+               ★sendTimer を動かさない・speak() に渡さない・history に「配信者」として入れない。
+               喋るかどうかは拍（tickRoom）が決める。 */
+            if (roomOn) {
+              if (final) transcript = appendFinal(transcript, { text, tMs: Date.now(), source: 'room' });
+              if (!roomBusy) setState('listening', '場を聞いています…' + (text ? `「${text}」` : ''));
+              return;
+            }
             if (final) {
               heardFinal += text;
               $('say').value = heardFinal;
@@ -711,7 +864,15 @@
                  ログには出す（黙って捨てない）が、聞き続ける。 */
             log('（マイク）', reason);
             if (reason.includes('聞き取れませんでした')) {
-              setState('listening', '聞いています…');
+              setState('listening', roomOn ? '場を聞いています…' : '聞いています…');
+              return;
+            }
+            /* ★場を聞くモードでマイクが使えないなら、モードごと降ろす（2026-09-08）。
+               押しっぱなし扱いのままだと 400ms ごとに再起動→失敗を繰り返し、
+               ログが「許可されていません」で埋まる（実測）。 */
+            if (roomOn && reason.includes('許可されていません')) {
+              $('room').checked = false;
+              $('room').dispatchEvent(new Event('change'));
               return;
             }
             setState(null);
@@ -810,7 +971,28 @@
           if (ptt.isHolding) micOff();
           else micOn();
         });
+
+        /* ★場を聞く（2026-09-08）。ON でマイクを開き、拍を 500ms ごとに見る。
+           OFF で拍を止め、マイクも閉じる。★既定は OFF（押して話すが既定）。 */
+        $('room').addEventListener('change', async (e) => {
+          roomOn = e.target.checked;
+          if (roomOn) {
+            transcript = makeTranscript();
+            lastBeatAt = 0;
+            if (!ptt.isHolding) await micOn();
+            clearInterval(roomTicker);
+            roomTicker = setInterval(tickRoom, 500);
+            log('（場）', '場を聞く: ON。聞こえた話を貯めて、間が来たら話題に一言だけ言います');
+            setState('listening', '場を聞いています…');
+          } else {
+            clearInterval(roomTicker);
+            roomTicker = null;
+            if (ptt.isHolding) micOff();
+            log('（場）', '場を聞く: OFF');
+          }
+        });
       }
+      if (!listenable.ok) $('room').disabled = true;
 
       $('send').addEventListener('click', () => speak($('say').value));
       $('say').addEventListener('keydown', (e) => {
@@ -819,6 +1001,13 @@
       $('chatter').addEventListener('change', (e) => live.setChatter(e.target.checked));
 
       globalThis.__live = live;
+      /* ★開発用の手（マイク無しで場の話を流し込む）。
+         ★実装と同じ経路（耳→拍→荷物→think）を通る。UI からは触れない。 */
+      globalThis.__room = {
+        hear(text) { transcript = appendFinal(transcript, { text: String(text), tMs: Date.now(), source: 'room' }); },
+        get transcript() { return transcript; },
+        get on() { return roomOn; }
+      };
     </script>
   </body>
 </html>

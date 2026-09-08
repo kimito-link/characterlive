@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "talk",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "talk"],
+      "port": 5173
+    }
+  ]
+}

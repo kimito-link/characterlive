@@ -27,8 +27,27 @@ const TYPES = {
   '.json': 'application/json; charset=utf-8'
 };
 
+/**
+ * ★クラウド頭脳の入口（2026-09-07）。本番は Vercel が api/chat.js を自動で関数にする。
+ *   ローカルでも同じ URL・同じ handler に回す（2つ作らない）。
+ *   ★遅延 import: SDK が無い／壊れていても静的配信は止めない。
+ */
+async function serveApiChat(req, res) {
+  try {
+    const mod = await import('../api/chat.js');
+    await mod.default(req, res);
+  } catch (e) {
+    res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: false, reason: `api/chat.js を読めません: ${String(e?.message || e)}` }));
+  }
+}
+
 createServer(async (req, res) => {
   const url = decodeURIComponent((req.url || '/').split('?')[0]);
+  if (url === '/api/chat') {
+    await serveApiChat(req, res);
+    return;
+  }
   // ★ルートは index.html(LP)。デモは /demo.html を明示して開く。
   const rel = url === '/' ? 'index.html' : url.replace(/^\/+/, '');
   // ルート外へ出さない(..%2f 等の相対脱出を弾く)。
@@ -46,4 +65,5 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, () => {
   console.log(`characterlive demo → http://localhost:${PORT}/`);
+  console.log(`  Fable 5.1 (/api/chat): ${process.env.ANTHROPIC_API_KEY ? '鍵あり' : '鍵なし（ANTHROPIC_API_KEY を環境変数で渡す）'}`);
 });

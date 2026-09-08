@@ -20,8 +20,73 @@ import { readMood, moodDirective } from './charaMood.js';
 import { toneDirective } from './charaVoiceTone.js';
 import { readAddress, narrowContext, addressDirective } from './charaAddress.js';
 import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js';
+import {
+  CLOUD_MODEL, CLOUD_SYSTEM_EXTRA, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
+} from './charaCloudRequest.js';
+import { buildUserBlock, roomAsk } from './charaDigest.js';
+import { looksBrokenReply } from './charaReplyGuard.js';
 
 /** @typedef {'rinku'|'konta'|'tanunee'} CharaId */
+/** @typedef {'nano'|'fable'} BrainId */
+
+/**
+ * ★頭脳の切り替え（2026-09-07）
+ *   nano  … Chrome 内蔵の Gemini Nano。鍵不要・端末内で完結。ただし文脈をほぼ持てない。
+ *   fable … Claude Fable 5.1（/api/chat 経由・鍵はサーバ側）。文脈を持てる。
+ *   ★「文脈を持っていない」が真因（_docs/NEXT-SESSION.md）なので、
+ *     同じ会話を両方の頭脳で試して差を見るための入口。
+ */
+export const BRAINS = Object.freeze({
+  nano: Object.freeze({ id: 'nano', label: '内蔵AI（Gemini Nano）' }),
+  fable: Object.freeze({ id: 'fable', label: `Claude Fable 5.1（${CLOUD_MODEL}）` })
+});
+export const DEFAULT_BRAIN = 'nano';
+
+/** @type {BrainId} */
+let brain = DEFAULT_BRAIN;
+
+/** 頭脳を選ぶ。知らない名前なら既定に戻す（黙って壊れない）。 */
+export function setBrain(id) {
+  brain = /** @type {BrainId} */ (BRAINS[id] ? id : DEFAULT_BRAIN);
+  return brain;
+}
+export function getBrain() {
+  return brain;
+}
+
+/** クラウド頭脳の入口。★同一オリジン固定（鍵の置き場を1つにする）。 */
+export const CLOUD_ENDPOINT = '/api/chat';
+
+/**
+ * クラウド頭脳が使えるか調べる（鍵の有無だけ・課金なし）。
+ * @returns {Promise<{ok:boolean, state:string, reason?:string}>}
+ */
+async function probeCloud() {
+  try {
+    const r = await fetch(CLOUD_ENDPOINT, { method: 'GET', cache: 'no-store' });
+    if (!r.ok) return { ok: false, state: 'unreachable', reason: `/api/chat が ${r.status} を返しました` };
+    const j = await r.json();
+    if (j.hasKey) return { ok: true, state: 'available' };
+    return { ok: false, state: 'no-key', reason: 'サーバに ANTHROPIC_API_KEY がありません' };
+  } catch (e) {
+    return { ok: false, state: 'unreachable', reason: `/api/chat に届きません（${String(e?.message || e)}）` };
+  }
+}
+
+/**
+ * クラウド頭脳に1回聞く。
+ * @param {{ system:string, user:string }} input
+ * @returns {Promise<{ ok:boolean, text?:string, reason?:string, servedBy?:string }>}
+ */
+async function askCloud(input) {
+  const r = await fetch(CLOUD_ENDPOINT, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  const j = await r.json().catch(() => ({ ok: false, reason: `応答が JSON ではありません（${r.status}）` }));
+  return j;
+}
 
 /**
  * 内蔵AIが使えるか調べる。
@@ -29,6 +94,7 @@ import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js
  * @returns {Promise<{ok:boolean, state:string, reason?:string}>}
  */
 export async function probeAi() {
+  if (brain === 'fable') return probeCloud();
   const LM = /** @type {any} */ (globalThis).LanguageModel;
   if (!LM || typeof LM.availability !== 'function') {
     return { ok: false, state: 'unavailable', reason: 'この端末では内蔵AIが使えません' };
@@ -102,8 +168,15 @@ export async function think(input) {
      ★要約ではない。「フォロワー増えない」の急所は「増えない」であって
        「フォロワー」ではない。ここを外すと当たり障りのない返事になる。
      ★名指しやリレーのときは、そちらの指示が優先（プロンプト上限があるため）。 */
+  /* ★場を聞くモード（2026-09-08・_docs/ROOM-LISTENING-DESIGN.md）
+       input.room.digest = 耳に貯まっている直近の窓。断片（input.text）は主役にしない。
+       ★system は触らない（変えると Nano のセッションが作り直され 11 秒問題に戻る）。
+         場の指示は全部 user 側。 */
+  const room = input.room && String(input.room.digest || '').trim() ? input.room : null;
+
   const sore = findSorePoint(input.text);
-  const react = (input.relay || readAddress(input.text).charaId === charaId)
+  // ★場モードでは急所拾いをしない（断片の一語を主役にするのは、まさにオウム返しの入口）
+  const react = (room || input.relay || readAddress(input.text).charaId === charaId)
     ? ''
     : reactDirective({ charaId, point: sore.point, kind: sore.kind });
 
@@ -151,43 +224,58 @@ export async function think(input) {
      Grokの助言「履歴は全部渡さない。4つだけ」は**1ターンの文脈**の話。
      会話の連続性は別の話で、そこは残す必要がある。
      → ★10ターン保持する。ただし1件ずつは短く切る（要約させないため）。 */
-  const hist = (input.history || []).slice(-HISTORY_TURNS)
-    .map((h) => {
-      // ★1件は28字まで。10ターン分を丸ごと入れるとプロンプト上限を超える。
-      const line = String(h.text || '').slice(0, 28);
-      if (h.who === '配信者') return `相手: ${line}`;
-      return h.who === persona.displayName ? `あなた: ${line}` : `仲間: ${line}`;
-    })
-    .join('\n');
+  /* ★クラウド頭脳は履歴を多く渡す（2026-09-07）
+       内蔵AIの「1件28字×10ターン」はプロンプト上限のための妥協で、
+       ★それが「文脈を持っていない」真因の半分だった。上限の無い頭脳には渡しきる。 */
+  const cloud = brain === 'fable';
+  /* ★場モードの内蔵AIは履歴を削る（2026-09-08）
+       窓140字 + 履歴 + 指示 で入力上限（実測320〜350字）を超えると create が失敗し、
+       ★決め打ち台詞に落ちて画面上は正常に見える（潜伏型）。
+       窓の方が文脈として濃いので、履歴は直近3ターンに絞る。字数は結果に出してログで見る。 */
+  const hist = packHistory(input.history, persona.displayName, {
+    turns: cloud ? CLOUD_HISTORY_TURNS : (room ? ROOM_HISTORY_TURNS_NANO : HISTORY_TURNS),
+    chars: cloud ? CLOUD_HISTORY_CHARS : HISTORY_CHARS
+  });
   // ★「〜ですね」で受け流させない（ユーザー要望:「superficial な返答じゃなく」）
   //   ★オウム返しを名指しで禁じる。Grokのプロンプトが決まり文句を名指しで
   //     禁止しているのと同じ手法（曖昧に「深く返せ」と言っても効かない）。
   const ask = [
     situationLine,
-    `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`
+    room
+      ? roomAsk(persona.displayName, { pickup: input.room.pickup })
+      : `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`
   ].filter(Boolean).join('');
-  const user = hist
-    ? `これまでの会話:
-${hist}
-
-相手:「${input.text}」
-
-${ask}`
-    : `相手:「${input.text}」
-
-${ask}`;
+  // ★場モードでは「相手:「…」」行を作らない（断片を主役にしない）
+  const user = buildUserBlock({ text: input.text, hist, ask, room });
+  const userChars = user.length;
 
   const LM = /** @type {any} */ (globalThis).LanguageModel;
   const t0 = performance.now();
   let session;
   try {
-    /* ★セッションを使い回す（2026-09-05・実害「思考時間が長い」）
-       ★実測ログ: 10801ms → 1241ms → 1260ms → 1390ms
-         1回目だけ極端に遅く、以降は1.2〜1.4秒。
-         = 推論ではなく**セッション作成**が重い。
-       → 同じ system プロンプトなら作り直さない。 */
-    session = await acquireSession(LM, charaId, system);
-    const raw = await session.prompt(user);
+    let raw;
+    let servedBy;
+    if (cloud) {
+      /* ★クラウド頭脳: system に「音声認識の崩れを前後から補う」指示を足す。
+         人格と同じく固定文なので、毎回同じ system になる（キャッシュにも優しい）。 */
+      const r = await askCloud({ system: `${system}\n${CLOUD_SYSTEM_EXTRA}`, user });
+      if (!r.ok) throw new Error(r.reason || 'クラウド頭脳が答えませんでした');
+      raw = r.text;
+      servedBy = r.servedBy;
+    } else {
+      /* ★セッションを使い回す（2026-09-05・実害「思考時間が長い」）
+         ★実測ログ: 10801ms → 1241ms → 1260ms → 1390ms
+           1回目だけ極端に遅く、以降は1.2〜1.4秒。
+           = 推論ではなく**セッション作成**が重い。
+         → 同じ system プロンプトなら作り直さない。 */
+      session = await acquireSession(LM, charaId, system);
+      raw = await session.prompt(user);
+    }
+    /* ★返事の形をした失敗を弾く（2026-09-08・実害）
+       スタブの内蔵AIが英語のエラー文やプロンプトの足場を「返事」として返し、
+       そのまま こん太 の台詞になった。ここで失敗扱いにして決め打ちへ落とす。 */
+    const shape = looksBrokenReply(raw, user);
+    if (!shape.ok) throw new Error(`返事が壊れている: ${shape.reason}`);
     // ★リレー中は1人1文に固定する（指示）。3人ぶん続くので長いと聞き疲れる。
     // ★リレー中と名指し時は1文に固定（Grok:「役割を変えるだけで、長さは揃える」）
     const oneSentence = Boolean(input.relay) || Boolean(address);
@@ -199,11 +287,11 @@ ${ask}`;
          止めたときは決め打ちに落とす（黙るより喋る）。 */
     const harsh = checkNotTooHarsh(text);
     if (!harsh.ok) text = fallbackLine(charaId, input.text);
-    return { ok: true, text, ms: Math.round(performance.now() - t0) };
+    return { ok: true, text, ms: Math.round(performance.now() - t0), brain, servedBy, userChars };
   } catch (e) {
     // ★ここでも黙らない（上と同じ理由）
     releaseSession(charaId);   // ★壊れたセッションは捨てる（使い回すと二度と成功しない）
-    return { ok: true, text: fallbackLine(charaId, input.text), ms: Math.round(performance.now() - t0), fallback: true, reason: String(e?.message || e) };
+    return { ok: true, text: fallbackLine(charaId, input.text), ms: Math.round(performance.now() - t0), fallback: true, reason: String(e?.message || e), userChars };
   } finally {
     /* ★ここで destroy しない（使い回すため・2026-09-05）
        壊れた場合は catch 側の releaseSession で捨てる。 */
@@ -329,6 +417,28 @@ export function tidy(raw, maxSentences = MAX_SENTENCES) {
  *     1件28字に切ったうえで10ターン。
  */
 export const HISTORY_TURNS = 10;
+/** ★内蔵AI向け: 1件は28字まで。10ターン分を丸ごと入れるとプロンプト上限を超える。 */
+export const HISTORY_CHARS = 28;
+/** ★場モードの内蔵AI向け: 窓140字を足すぶん履歴を削る（3×28=84字）。 */
+export const ROOM_HISTORY_TURNS_NANO = 3;
+
+/**
+ * 履歴を「相手/あなた/仲間」の行に畳む（純関数）。
+ * ★人名を出さない。「こん太: いいね！」を見せると、モデルは"使ってよい名前"として受け取る。
+ * @param {Array<{who:string,text:string}>|undefined} history
+ * @param {string} selfName この子の表示名
+ * @param {{turns:number, chars:number}} limit
+ * @returns {string}
+ */
+export function packHistory(history, selfName, limit) {
+  return (history || []).slice(-limit.turns)
+    .map((h) => {
+      const line = String(h.text || '').slice(0, limit.chars);
+      if (h.who === '配信者') return `相手: ${line}`;
+      return h.who === selfName ? `あなた: ${line}` : `仲間: ${line}`;
+    })
+    .join('\n');
+}
 
 /**
  * ★キャラごとのセッション置き場（2026-09-05）。
