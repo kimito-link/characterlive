@@ -172,6 +172,30 @@
         #stage .nlcl-chara__bubble { max-width: 124px; font-size: 11.5px; }
       }
       .stage-note { text-align: center; color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
+      .core {
+        margin: 18px 0 0; padding: 14px 18px; text-align: center;
+        background: var(--bg2); border-radius: 12px; color: var(--navy-deep);
+        font-size: clamp(15px, 4vw, 17px); line-height: 1.8;
+      }
+      .core b { color: var(--orange); font-weight: 700; }
+      /* ★開発版で動いているもの。公開版と区別する印 */
+      .dev {
+        display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+        background: var(--bg2); color: var(--navy); font-size: 11.5px; font-weight: 700;
+        vertical-align: middle; white-space: nowrap;
+      }
+      /* やらないこと */
+      .nots { display: grid; gap: 10px; }
+      .not {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+        padding: 13px 16px 13px 44px; position: relative; font-size: 14.5px;
+      }
+      .not::before {
+        content: "×"; position: absolute; left: 15px; top: 12px;
+        width: 20px; height: 20px; border-radius: 50%; background: var(--orange); color: #fff;
+        font-size: 13px; font-weight: 700; line-height: 20px; text-align: center;
+      }
+      .not b { color: var(--navy-deep); }
       .stage-note .live {
         display: inline-block; width: 7px; height: 7px; border-radius: 50%;
         background: var(--ok); margin-right: 6px;
@@ -311,6 +335,8 @@
           ——分かっていても、喋り続けながら他のことをやるのは、単純に大変です。
           <br />characterlive は、その一部を肩代わりします。
         </p>
+        <!-- ★製品の芯（CONCEPT-aibou-3nin）。説明ではなく、この一文に尽きる。 -->
+        <p class="core">ただ一人で抱え込まないように、<b>そばにいる</b>。それだけの3人です。</p>
       </div>
     </section>
 
@@ -336,6 +362,47 @@
             <b>たまに、遠慮なく言います</b>
             <span>ずっと褒めるだけだと飽きます。時々ツッコみます。ただし最後は味方です。</span>
           </div>
+          <!-- ★2026-09-08 追加。手元（開発版）で動いているもの。公開版はまだなので印を付ける。 -->
+          <div class="step">
+            <b>声で喋ります<span class="dev">開発版で動作中</span></b>
+            <span>3人それぞれの声（VOICEVOX）で読み上げます。口の動きは声に合わせます。</span>
+          </div>
+          <div class="step">
+            <b>あなたの声を聞いて、答えます<span class="dev">開発版で動作中</span></b>
+            <span>
+              ボタンを押している間だけ聞きます。言い切ったら 0.25 秒で返し、続きそうなら待ちます。
+              聞こえた言葉をそのまま繰り返す返事はしません。
+            </span>
+          </div>
+          <div class="step">
+            <b>場の話を聞いて、間が来たら一言だけ<span class="dev">作っています</span></b>
+            <span>
+              スペースや配信の会話を貯めておいて、話が途切れたときに話題へ一言。
+              断片ひとつひとつには返しません。既定は OFF です。
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================
+      ★やらないこと（2026-09-08 追加）
+        話し相手AIが「うざい・きもい・やめた」と言われる理由を、実際のレビューと論文で
+        調べた（_docs/RESEARCH-companion-voice-2026-09-07.md の禁止5）。
+        多かった順に: 同じ話の繰り返し／割り込み／褒めすぎ／頼んでない提案／引き止め。
+        ★弱点も正直に書く LP の流儀（追憶のきらめき）に合わせ、「やらない」を約束として書く。
+    ================= -->
+    <section>
+      <div class="wrap">
+        <h2>やらない、と決めていること。</h2>
+        <p class="lead">話し相手のAIが嫌われる理由を、レビューと研究で調べました。上から順に多かったものです。</p>
+        <div class="nots">
+          <div class="not"><b>同じことを二度言いません。</b> 直前に言った言葉を使い回しません。</div>
+          <div class="not"><b>割り込みません。</b> あなたが喋っている間は黙ります。短い間を「話し終わった」とみなして被せません。</div>
+          <div class="not"><b>褒めすぎません。</b> 褒めるなら、あなたがやったことを1つだけ。人柄は褒めません。</div>
+          <div class="not"><b>頼まれていない提案をしません。</b> 「見てるから頑張れ」のような見張り方もしません。</div>
+          <div class="not"><b>引き止めません。</b> 「寂しい」「また来てね」は言いません。あなたが閉じるときは、黙って見送ります。</div>
+          <div class="not"><b>長く使わせようとしません。</b> 使った時間を数えて喜ぶ仕組みは作りません。</div>
         </div>
       </div>
     </section>
@@ -390,7 +457,7 @@
             </div>
             <div>
               <p class="name">りんく</p>
-              <p class="role">何があっても味方。否定しません</p>
+              <p class="role">何があっても味方。ただし事実は歪めません</p>
               <p class="line">「ボクは4回目でもちゃんと聞くのだ！」</p>
             </div>
           </div>
@@ -402,7 +469,7 @@
             </div>
             <div>
               <p class="name">こん太</p>
-              <p class="role">素直で元気。まっすぐ褒めます</p>
+              <p class="role">あなたの可能性を信じる。ただし甘やかしません</p>
               <p class="line">「3回目ならボクもう覚えたよ！次はいっしょに言えるよ！」</p>
             </div>
           </div>
@@ -414,7 +481,7 @@
             </div>
             <div>
               <p class="name">たぬ姉</p>
-              <p class="role">遠慮なくツッコむ。でも最後は肯定します</p>
+              <p class="role">はたから見た本音を言う。ただし人格は否定しません</p>
               <p class="line">「そりゃそうよ。あなた今日、同じ話もう3回してるもの」</p>
             </div>
           </div>
@@ -454,6 +521,11 @@
               <td>1人</td>
               <td>3人（勝手に掛け合います）</td>
             </tr>
+            <tr>
+              <th>あなたが閉じる時</th>
+              <td>「行かないで」と引き止めるものもあります</td>
+              <td>黙って見送ります</td>
+            </tr>
           </table>
         </div>
         <p class="muted small">
@@ -476,11 +548,20 @@
               <strong>配信に映すかは、あなたが決めます。</strong>
               既定では<strong>あなたにしか見えません</strong>。視聴者には出ません。
             </li>
-            <li><strong>あなたのパソコンの中だけで動きます。</strong>会話を外に送りません。</li>
+            <li>
+              <strong>既定では、あなたのパソコンの中だけで動きます。</strong>会話を外に送りません。
+              クラウドの頭脳を自分で選んだときだけ、会話の文が外に出ます。選ばなければ出ません。
+            </li>
             <li>
               <strong>まだ作っている途中です。</strong>
-              いま動くのは「3人がいて、勝手に喋る」ところまで。
-              声（VOICEVOX）と、あなたの声を聞いて答える機能は、これから足します。
+              いま公開しているのは「3人がいて、勝手に喋る」ところまで。
+              声（VOICEVOX）と、あなたの声を聞いて答える版は手元で動いていて、公開の準備中です。
+              場の話を聞いて一言だけ言う仕組みは、まだ作っています。
+            </li>
+            <li>
+              <strong>まだ、うまく言えないことがあります。</strong>
+              聞き取りが崩れると、見当違いの返事をすることがあります。
+              上の「やらないこと」は約束ですが、全部が既に完璧に守れているわけではありません。直しながら進めます。
             </li>
             <li><strong>無料です。</strong></li>
           </ul>
@@ -509,8 +590,17 @@
         <details>
           <summary>マイクは必要ですか？</summary>
           <p>
-            いまは不要です。開くだけで3人が喋ります。
-            将来「あなたの声を聞いて答える」機能を足しますが、そのときも使うかどうかは選べます。
+            使わなくても動きます。開くだけで3人が喋ります。
+            声で話しかける版（開発中）では使いますが、ボタンを押している間だけ聞く方式が既定で、
+            キャラが喋っている間は聞きません。
+          </p>
+        </details>
+        <details>
+          <summary>配信の場の話に、口を挟みますか？</summary>
+          <p>
+            「場を聞く」を自分で ON にしたときだけです（既定は OFF）。
+            聞こえた断片ひとつひとつには返しません。話が途切れたときに、話題へ一言だけ言います。
+            あなたが喋っている間は黙ります。
           </p>
         </details>
         <details>
@@ -534,7 +624,7 @@
       <div class="wrap">
         <h2>できたら、お知らせします。</h2>
         <p class="muted small">
-          声で喋る版ができたら、最初にご連絡します。<br />
+          声で話せる版を公開したら、最初にご連絡します。<br />
           「こんな子がほしい」「この一言が刺さった」も、そこで聞かせてください。
         </p>
         <p>
@@ -562,7 +652,7 @@
           にまとめています。
         </p>
         <p>
-          音声は VOICEVOX を使う予定です。／
+          音声は VOICEVOX を使っています（開発版）。／
           りんく・こん太・たぬ姉は Kimito-Link Project のオリジナルキャラクターです。
         </p>
       </div>
