@@ -24,7 +24,9 @@ import {
   CLOUD_MODEL, CLOUD_SYSTEM_EXTRA, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
 } from './charaCloudRequest.js';
 import { buildUserBlock, roomAsk } from './charaDigest.js';
-import { looksBrokenReply } from './charaReplyGuard.js';
+import { looksBrokenReply, isRepeatOf } from './charaReplyGuard.js';
+import { roleRulesV2 } from './charaRules.v2.js';
+import { memoryDirective } from './charaMemory.js';
 
 /** @typedef {'rinku'|'konta'|'tanunee'} CharaId */
 /** @typedef {'nano'|'fable'} BrainId */
@@ -202,10 +204,17 @@ export async function think(input) {
          そちらは毎回変わってよい（セッションは作り直されない）。 */
   const system = buildSystemPrompt(charaId, { mode: input.mode || DEFAULT_MODE });
 
+  /* ★前回の話を1つだけ拾う（2026-09-14・採用5）
+       ★応援役（りんく）だけ。「約束・日時を覚えて出すのは応援役だけ」（Grok 規則案）。
+       ★クラウド頭脳だけ。内蔵AIは user 側にも余裕がない（履歴10×28字で上限近く）。 */
+  const memory = (brain === 'fable' && charaId === 'rinku' && !input.relay)
+    ? memoryDirective(input.memory?.line)
+    : '';
+
   // ★毎回変わる状況は user 側にまとめる
   const situationLine = (address
     ? [address, input.relay].filter(Boolean).join(' ')
-    : [toneDirective(input.tone), situation, input.relay].filter(Boolean).join(' '));
+    : [toneDirective(input.tone), situation, input.relay, memory].filter(Boolean).join(' '));
 
   // 直近のやりとりだけ渡す（内蔵AIは小型なので長い履歴は毒）
   // ★履歴にも他の子の名前を出さない（プロンプト本体と同じ理由・Grokの指摘）
@@ -258,7 +267,9 @@ export async function think(input) {
     if (cloud) {
       /* ★クラウド頭脳: system に「音声認識の崩れを前後から補う」指示を足す。
          人格と同じく固定文なので、毎回同じ system になる（キャッシュにも優しい）。 */
-      const r = await askCloud({ system: `${system}\n${CLOUD_SYSTEM_EXTRA}`, user });
+      /* ★役ごとの振る舞い規則 v2（2026-09-14）はクラウド頭脳だけに足す。
+         内蔵AIは system 上限（実測320〜350字）に入らない。v1 の人格文は触らない。 */
+      const r = await askCloud({ system: `${system}\n${CLOUD_SYSTEM_EXTRA}\n${roleRulesV2(charaId)}`, user });
       if (!r.ok) throw new Error(r.reason || 'クラウド頭脳が答えませんでした');
       raw = r.text;
       servedBy = r.servedBy;
@@ -287,7 +298,15 @@ export async function think(input) {
          止めたときは決め打ちに落とす（黙るより喋る）。 */
     const harsh = checkNotTooHarsh(text);
     if (!harsh.ok) text = fallbackLine(charaId, input.text);
-    return { ok: true, text, ms: Math.round(performance.now() - t0), brain, servedBy, userChars };
+
+    /* ★同じ文の使い回しを止める（2026-09-14・禁止1）
+       離脱理由の1位「同じ話の繰り返し」。直前の自分の返事と重なりが大きければ通さない。
+       ★場モードでは呼び出し側が「決め打ちは言わない」ので、結果として黙る（それが正しい）。
+       1対1では決め打ちに落とす（黙るより喋る、の原則はそのまま）。 */
+    const repeated = isRepeatOf(LAST_REPLY.get(charaId), text);
+    if (repeated) text = fallbackLine(charaId, input.text);
+    LAST_REPLY.set(charaId, text);
+    return { ok: true, text, ms: Math.round(performance.now() - t0), brain, servedBy, userChars, fallback: repeated || undefined, reason: repeated ? '直前と同じ返事だったので言い換えた' : undefined };
   } catch (e) {
     // ★ここでも黙らない（上と同じ理由）
     releaseSession(charaId);   // ★壊れたセッションは捨てる（使い回すと二度と成功しない）
@@ -446,6 +465,9 @@ export function packHistory(history, selfName, limit) {
  * @type {Map<string, {system:string, session:any}>}
  */
 const SESSIONS = new Map();
+
+/** ★キャラごとの直前の返事（同じ文の使い回しを止めるため・2026-09-14）。 @type {Map<string,string>} */
+const LAST_REPLY = new Map();
 
 /** 使い回せるセッションを返す（無ければ作る）。 */
 async function acquireSession(LM, charaId, system) {

@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest';
-import { looksBrokenReply } from './charaReplyGuard.js';
+import { looksBrokenReply, isRepeatOf } from './charaReplyGuard.js';
+
+describe('isRepeatOf — 直前の自分の返事の使い回しを見抜く（比率で判定）', () => {
+  it('同じ文はもちろん、句読点だけ違う文も繰り返し', () => {
+    expect(isRepeatOf('画面は見えない。音声モードだから、画面は見えない', '画面は見えない！音声モードだから画面は見えない')).toBe(true);
+  });
+
+  it('★Grok の実害: 食い下がられて同じ説明を返した', () => {
+    const a = '見えない。音声モードでは画面を受け取る仕組みがない。何が出てるか、言葉で教えてくれれば一緒に確認する';
+    const b = '見えない。音声モードでは画面を受け取る仕組みがない。何が出てるか言葉で教えてくれれば一緒に確認する';
+    expect(isRepeatOf(a, b)).toBe(true);
+  });
+
+  it('同じ話題でも別の文なら繰り返しではない', () => {
+    expect(isRepeatOf('コメント0か。そういう日もあるのだ', '3人減ったのは気になるのだ。心当たりある？')).toBe(false);
+    expect(isRepeatOf('いいのだ！やってみるのだ', 'ボクは待ってるのだ')).toBe(false);
+  });
+
+  it('短い相槌同士は繰り返しと呼ばない（「うん」が続いてもよい）', () => {
+    expect(isRepeatOf('うん', 'うん')).toBe(true);        // 完全一致だけは true
+    expect(isRepeatOf('うんうん', 'うん、そう')).toBe(false);
+  });
+
+  it('空や未定義は false', () => {
+    expect(isRepeatOf('', 'なにか')).toBe(false);
+    expect(isRepeatOf(undefined, undefined)).toBe(false);
+  });
+});
 
 describe('looksBrokenReply — 返事の形をした失敗を見抜く', () => {
   it('実害の再現: 英語のエラー文を返事扱いしない', () => {

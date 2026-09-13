@@ -40,6 +40,20 @@ describe('★語マッチを復活させない（誤爆の温床）', () => {
   });
 });
 
+describe('★引き止めない（2026-09-14・本調査の禁止2）', () => {
+  it('「また来てね」「行かないで」「寂しくなる」は通さない', () => {
+    expect(checkNotTooHarsh('行かないで、もう少しだけ').ok).toBe(false);
+    expect(checkNotTooHarsh('また来てね、待ってるのだ').ok).toBe(false);
+    expect(checkNotTooHarsh('あなたがいないと寂しくなる').ok).toBe(false);
+    expect(checkNotTooHarsh('もしかして冷めた？').ok).toBe(false);
+  });
+  it('相手の気持ちとして受ける「寂しかったんだね」や、普通の見送りは通す', () => {
+    expect(checkNotTooHarsh('寂しかったんだね。聞いてるのだ').ok).toBe(true);
+    expect(checkNotTooHarsh('おつかれ。ゆっくり休むのだ').ok).toBe(true);
+    expect(checkNotTooHarsh('いってらっしゃい').ok).toBe(true);
+  });
+});
+
 describe('★会議が警告した危険パターンを止める', () => {
   it('★視聴者を人質に取らない（本人にはどうにもできない＝逃げ道が無い）', () => {
     expect(checkNotTooHarsh('あの発言でチャンネル離脱者が増えるぞ').ok).toBe(false);

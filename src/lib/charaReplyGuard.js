@@ -39,3 +39,40 @@ export function looksBrokenReply(raw, user = '') {
 
   return { ok: true };
 }
+
+/**
+ * 直前の自分の返事の使い回しか（純関数）。
+ *
+ * ★根拠: 離脱理由の1位が「同じ話の繰り返し」（本調査 §7-A・Replika 12件／Character.AI 7件／Cotomo 7件）。
+ *   Grok の実会話でも、食い下がられて同じ文を3回返した（REFERENCE-grok-voice 2-3）。
+ * ★絶対値で判定しない（「8字以上の一致で落とす」は正解も落とす）。
+ *   2文字の並び（bigram）の重なりを**比率**で見る。短い相槌（「うん」「へえ」）は対象外。
+ *
+ * @param {string} prev 直前の自分の返事
+ * @param {string} next 今回の返事
+ * @param {number} [threshold] 重なり比率（Jaccard）。既定 0.6
+ * @returns {boolean}
+ */
+export function isRepeatOf(prev, next, threshold = 0.6) {
+  const a = norm(prev);
+  const b = norm(next);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // ★短い返事同士は「繰り返し」と呼ばない（相槌が毎回違うことは要求しない）
+  if (a.length < 8 || b.length < 8) return false;
+  const ga = bigrams(a);
+  const gb = bigrams(b);
+  let inter = 0;
+  for (const g of ga) if (gb.has(g)) inter += 1;
+  const union = ga.size + gb.size - inter;
+  return union > 0 && inter / union >= threshold;
+}
+
+function norm(s) {
+  return String(s || '').replace(/[、。！？!?\s「」…]/g, '').trim();
+}
+function bigrams(s) {
+  const g = new Set();
+  for (let i = 0; i + 1 < s.length; i += 1) g.add(s.slice(i, i + 2));
+  return g;
+}

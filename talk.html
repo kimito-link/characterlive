@@ -253,6 +253,8 @@
       } from './src/lib/charaTranscript.js';
       import { resolveBeat, isStaleBeat } from './src/lib/charaBeat.js';
       import { buildRoomDigest } from './src/lib/charaDigest.js';
+      /* ★前回の話を1つだけ拾う記憶（2026-09-14・採用5）。端末内（localStorage）だけ。 */
+      import { remember, pickup, parseMemory, serializeMemory } from './src/lib/charaMemory.js';
       import {
         warmUpBackchannels, playBackchannel, shouldBackchannel
       } from './src/lib/charaBackchannel.js';
@@ -280,6 +282,20 @@
          ★人は返事を待たずに喋る。捨てずに順番待ちにする。 */
       const pending = [];
       let busy = false;
+
+      /* ★セッションをまたぐ記憶（2026-09-14）
+         配信者の発話だけを端末内に残し、次に開いたとき「前回の話」を1つだけ応援役に渡す。
+         ★会話を外に送らない方針はそのまま（保存先は localStorage だけ）。 */
+      const MEMORY_KEY = 'characterlive.memory';
+      let memoryItems = [];
+      try { memoryItems = parseMemory(localStorage.getItem(MEMORY_KEY)); } catch { /* no-op */ }
+      /** このセッションで拾う「前回の話」。開いた時点で1つだけ決める（途中で変えない） */
+      const memoryLine = pickup(memoryItems, Date.now());
+      if (memoryLine) console.info(`前回の話を1つ持っています:「${memoryLine}」（応援役・クラウド頭脳のときだけ使う）`);
+      function rememberSaid(text) {
+        memoryItems = remember(memoryItems, { text, tMs: Date.now() });
+        try { localStorage.setItem(MEMORY_KEY, serializeMemory(memoryItems)); } catch { /* no-op */ }
+      }
       /** 直前の思考時間。★相槌を出すか決めるのに使う（速いときは挟まない） */
       let lastThinkMs = 9999;
       /* ★声の調子を覚える（その人の平常時と比べるため）
@@ -541,6 +557,7 @@
         $('say').value = '';
         // ★ログは入口で出し済み（ここで出すと二重になる）
         history.push({ who: '配信者', text: t });
+        rememberSaid(t);   // ★次回「前の話」として1つだけ拾えるように残す
 
         /* ★気持ちの話なら3人でリレーする(2026-09-05・デモ用)
            1人1文 / りんく→こん太→たぬ姉 / 前の子の再生が終わってから次。
@@ -569,7 +586,10 @@
            ★Grokは相槌を挟まない。速いから要らない。
              隠すのではなく、速くするのが正しい。 */
 
-        const res = await think({ charaId: who, text: t, mode: $('mode').value, history, tone: lastTone });
+        const res = await think({
+          charaId: who, text: t, mode: $('mode').value, history, tone: lastTone,
+          memory: { line: memoryLine }   // ★応援役・クラウド頭脳のときだけ think が使う
+        });
         lastThinkMs = res.ms ?? lastThinkMs;
         live.endThinking();
 
@@ -675,7 +695,8 @@
           live.beginThinking({ charaId: who });
           const res = await think({
             charaId: who, text: '', mode: $('mode').value, history, tone: lastTone,
-            room: { digest }
+            room: { digest },
+            memory: { line: memoryLine }
           });
           live.endThinking();
 
