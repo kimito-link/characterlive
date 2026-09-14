@@ -349,6 +349,10 @@
 
       /** ログの別ウィンドウ（開いていれば同じ行をそちらにも出す） */
       let logWin = null;
+      /** 別ウィンドウの状態表示に流す口（開いている間だけ関数が入る） */
+      let popupState = null;
+      /** マイクのトグル（音声入力が使える環境でだけ入る。別ウィンドウの🎤から呼ぶ） */
+      let micToggle = null;
 
       function log(who, text, ms) {
         const p = document.createElement('p');
@@ -366,9 +370,9 @@
         logEl.scrollTop = logEl.scrollHeight;
         // ★別ウィンドウにも同じ行を出す（閉じられていたら戻す）
         if (logWin && !logWin.closed) {
-          const body = logWin.document.body;
-          body.appendChild(p.cloneNode(true));
-          logWin.scrollTo(0, body.scrollHeight);
+          const plog = logWin.document.getElementById('log') || logWin.document.body;
+          plog.appendChild(p.cloneNode(true));
+          plog.scrollTop = plog.scrollHeight;
         } else if (logWin) {
           logWin = null;
           document.body.classList.remove('log-detached');
@@ -390,16 +394,42 @@
           $('logPop').textContent = '別ウィンドウ';
           return;
         }
-        const w = window.open('', 'characterlive-log', 'width=520,height=640,resizable=yes,scrollbars=yes');
+        const w = window.open('', 'characterlive-log', 'width=520,height=680,resizable=yes,scrollbars=yes');
         if (!w) { log('（ログ）', '別ウィンドウを開けませんでした（ポップアップがブロックされています）'); return; }
+        /* ★別ウィンドウには入力欄も載せる（2026-09-14・ユーザー要望「分離した部分にコメント欄を」）
+           about:blank は開いた側と同一オリジンなので、こちらから直接イベントを付けられる。
+           入力は本体の speak() へ、マイクは本体のトグルへ流す（処理は1か所のまま）。 */
         const d = w.document;
         d.open();
         d.write('<!doctype html><meta charset="utf-8"><title>characterlive — 会話ログ</title>');
-        d.write('<style>body{margin:0;padding:12px 16px;background:#fff3e6;color:#2c2117;font:14px/1.8 system-ui,"Segoe UI","Hiragino Kaku Gothic ProN",sans-serif}'
-          + '.msg{margin:0 0 8px}.msg b{color:#14375c}.msg.me{color:#5f5346}.ms{font-size:11px;color:#5f5346;margin-left:6px}</style>');
+        d.write('<style>html,body{height:100%}body{margin:0;display:flex;flex-direction:column;background:#fff3e6;color:#2c2117;font:14px/1.8 system-ui,"Segoe UI","Hiragino Kaku Gothic ProN",sans-serif}'
+          + '#log{flex:1;overflow-y:auto;padding:12px 16px}.msg{margin:0 0 8px}.msg b{color:#14375c}.msg.me{color:#5f5346}.ms{font-size:11px;color:#5f5346;margin-left:6px}'
+          + '.bar{padding:10px 12px 12px;background:#fff;border-top:1px solid #e8dccd}.row{display:flex;gap:8px}'
+          + 'input{flex:1;font:inherit;padding:11px 12px;border:1.5px solid #e8dccd;border-radius:10px;min-width:0}input:focus{outline:2px solid #1c4b7d;border-color:transparent}'
+          + 'button{font:inherit;font-weight:700;padding:10px 16px;border:0;border-radius:10px;background:#c8721c;color:#fff;cursor:pointer;min-height:44px}'
+          + '.mic{background:#fff;border:1.5px solid #e8dccd;color:#1c4b7d;width:48px;padding:0;font-size:18px}.mic.is-on{background:#b3261e;border-color:#b3261e;color:#fff}'
+          + '.st{font-size:12px;color:#5f5346;margin-top:6px;min-height:1.6em}</style>');
+        d.write('<div id="log"></div><div class="bar"><div class="row"><button type="button" class="mic" id="pmic" title="押すと聞き始めます。もう一度押すと止まります">🎤</button>'
+          + '<input id="psay" type="text" placeholder="ここからも話しかけられます（例: たぬ姉、今日うまくいかなかった）" autocomplete="off"><button type="button" id="psend">話す</button></div><div class="st" id="pst"></div></div>');
         d.close();
-        for (const n of logEl.children) d.body.appendChild(n.cloneNode(true));
-        w.scrollTo(0, d.body.scrollHeight);
+        const plog = d.getElementById('log');
+        for (const n of logEl.children) plog.appendChild(n.cloneNode(true));
+        plog.scrollTop = plog.scrollHeight;
+        const psay = d.getElementById('psay');
+        const sendFromPopup = () => { const t = psay.value; psay.value = ''; speak(t); };
+        d.getElementById('psend').addEventListener('click', sendFromPopup);
+        psay.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendFromPopup(); });
+        const pmic = d.getElementById('pmic');
+        if (micToggle) {
+          pmic.addEventListener('click', () => { micToggle(); pmic.classList.toggle('is-on', !!ptt?.isHolding); });
+        } else {
+          pmic.disabled = true;
+          pmic.title = '音声入力が使えません';
+        }
+        // ★本体の状態表示（聞いています／考えています／話しています）を別窓にも映す
+        popupState = (text) => { const el = d.getElementById('pst'); if (el) el.textContent = text || ''; pmic.classList.toggle('is-on', !!ptt?.isHolding); };
+        w.addEventListener('unload', () => { popupState = null; });
+        psay.focus();
         logWin = w;
         document.body.classList.add('log-detached');
         $('logPop').textContent = '戻す';
@@ -855,6 +885,8 @@
        * ------------------------------------------------------------------ */
       function setState(s, text, allowHtml = false) {
         const el = $('state');
+        // ★別ウィンドウにも同じ状態を映す（HTML は渡さない・文字だけ）
+        try { popupState?.(s ? String(text).replace(/<[^>]+>/g, '') : ''); } catch { /* 閉じられた直後は無視 */ }
         if (!s) { el.hidden = true; return; }
         el.hidden = false;
         el.dataset.s = s;
@@ -1074,6 +1106,8 @@
           if (ptt.isHolding) micOff();
           else micOn();
         });
+        // ★別ウィンドウの🎤からも同じ切り替えを呼べるようにする
+        micToggle = () => { if (ptt.isHolding) micOff(); else micOn(); };
 
         // ★スペースキーも同じくトグル（配信中にキーを押し続けなくてよい）
         globalThis.addEventListener('keydown', (e) => {
