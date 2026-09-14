@@ -283,6 +283,8 @@ export async function think(input) {
   const LM = /** @type {any} */ (globalThis).LanguageModel;
   const t0 = performance.now();
   let session;
+  /** セッションを作り直したときの記録（速さの内訳に出す） */
+  let sessionNote = '';
   try {
     let raw;
     let servedBy;
@@ -302,6 +304,7 @@ export async function think(input) {
            = 推論ではなく**セッション作成**が重い。
          → 同じ system プロンプトなら作り直さない。 */
       session = await acquireSession(LM, charaId, system);
+      if (lastSessionInfo.created) sessionNote = `頭作り直し${lastSessionInfo.ms}ms（${lastSessionInfo.why}）`;
       raw = await session.prompt(user);
     }
     /* ★返事の形をした失敗を弾く（2026-09-08・実害）
@@ -364,6 +367,7 @@ export async function think(input) {
     LAST_REPLY.set(charaId, text);
     return {
       ok: true, text, ms: Math.round(performance.now() - t0), brain, servedBy, userChars,
+      sessionNote: sessionNote || undefined,
       fallback: repeated || undefined,
       rephrased: rephrased || undefined,
       reason: repeated ? '直前と同じ返事だったので言い換えた' : (rephrased ? '相手の言葉の写しだったので言い直した' : undefined)
@@ -541,13 +545,37 @@ const SESSIONS = new Map();
 const LAST_REPLY = new Map();
 
 /** 使い回せるセッションを返す（無ければ作る）。 */
+/** 直近の acquireSession が「作り直した」か・かかった時間（速さの内訳用）。 */
+let lastSessionInfo = { created: false, ms: 0, why: '' };
+/** 文脈枠のこの割合を超えたら、失敗する前に作り直す（2026-09-14）。 */
+const SESSION_QUOTA_RATIO = 0.75;
+
 async function acquireSession(LM, charaId, system) {
   const held = SESSIONS.get(charaId);
-  if (held && held.system === system && held.session) return held.session;
-  // ★プロンプトが変わったら作り直す（前の人格のまま喋られると困る）
+  lastSessionInfo = { created: false, ms: 0, why: '' };
+  if (held && held.system === system && held.session) {
+    /* ★文脈枠が一杯になる前に作り直す（2026-09-14・実害の疑い）
+         温めた後なのに「りんく 11537ms」が出た。セッションは prompt のたびに文脈を溜め、
+         枠を超えると失敗→捨てる→次の返事で作り直し（10秒超）になる。
+       ★履歴はこちらで毎回 user に渡しているので、セッション側の文脈は要らない。
+         使用量が枠の 75% を超えたら、その場で作り直す（失敗してからより速い）。 */
+    const s = held.session;
+    const usage = Number(s.inputUsage ?? s.tokensSoFar);
+    const quota = Number(s.inputQuota ?? s.maxTokens);
+    if (!(quota > 0 && usage / quota > SESSION_QUOTA_RATIO)) return s;
+    lastSessionInfo.why = `文脈枠 ${Math.round(100 * usage / quota)}%`;
+  } else if (held?.session) {
+    lastSessionInfo.why = 'system が変わった';
+  } else {
+    lastSessionInfo.why = '初回';
+  }
+  // ★プロンプトが変わった／枠が一杯なら作り直す（前の人格のまま喋られると困る）
   if (held?.session) { try { held.session.destroy?.(); } catch { /* no-op */ } }
+  const t0 = performance.now();
   const session = await LM.create({ initialPrompts: [{ role: 'system', content: system }] });
   SESSIONS.set(charaId, { system, session });
+  lastSessionInfo.created = true;
+  lastSessionInfo.ms = Math.round(performance.now() - t0);
   return session;
 }
 
