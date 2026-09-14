@@ -303,6 +303,8 @@
       import { buildRoomDigest } from './src/lib/charaDigest.js';
       /* ★前回の話を1つだけ拾う記憶（2026-09-14・採用5）。端末内（localStorage）だけ。 */
       import { remember, pickup, parseMemory, serializeMemory } from './src/lib/charaMemory.js';
+      /* ★キャラ自身の声の反響を弾く（2026-09-14）。比率で判定・絶対値は使わない */
+      import { isRepeatOf } from './src/lib/charaReplyGuard.js';
       import {
         warmUpBackchannels, playBackchannel, shouldBackchannel
       } from './src/lib/charaBackchannel.js';
@@ -681,6 +683,26 @@
         }
       }
 
+      /**
+       * ★マイクから来た言葉の入口（2026-09-14）。キャラ自身の声の反響なら捨てる。
+       *   ユーザー報告:「会話の流れが変」→ 直前にキャラが喋った文が「あなた」として返っていた。
+       *   認識器を再生中に止める対策（charaListen）に加え、内容でも二重に守る。
+       *   ★判定は直前3つのキャラの台詞との重なり比率（isRepeatOf・0.5）。絶対値では見ない。
+       *   ★捨てたことはログに出す（黙って捨てない）。本人が本当に同じ言葉を言った場合も
+       *     ここで消えるので、頻発するなら閾値を見直す。
+       */
+      function sendHeard(said) {
+        const t = String(said || '').trim();
+        if (!t) return;
+        const recent = history.filter((h) => h.who !== '配信者').slice(-3);
+        const echoOf = recent.find((h) => isRepeatOf(h.text, t, 0.5));
+        if (echoOf) {
+          log('（エコー）', `キャラの声を拾ったので捨てました:「${t}」（${echoOf.who}の台詞）`);
+          return;
+        }
+        speak(t);
+      }
+
       async function speakOne(text) {
         const t = String(text || '').trim();
         if (!t) return;
@@ -993,7 +1015,7 @@
                 heardFinal = '';
                 $('say').value = '';
                 log('（認識）', `確定が来ないので途中経過から送ります:「${said}」`);
-                speak(said);
+                sendHeard(said);
               }, resolveTurnEnd(stable).waitMs + 600);
             }
             if (final) {
@@ -1036,7 +1058,7 @@
                 lastTone = readTone(tone.end(Date.now(), said.length)).tone;
                 heardFinal = '';
                 $('say').value = '';
-                speak(said);
+                sendHeard(said);
               }, resolveTurnEnd(heardFinal).waitMs);
               /* ★待ち時間を「文の完結度」で変える（2026-09-06）
                  ★実測: 1往復に5.4秒かかっていた。
@@ -1139,7 +1161,7 @@
           const said = (heardFinal.trim() || $('say').value.trim());
           heardFinal = '';
           setState(null);
-          if (said) speak(said);
+          if (said) sendHeard(said);
           /* ★ここでは警告を出さない（2026-09-04・実害）
              ユーザー報告:「音が入っていませんでした」が2回出て画面がうるさい。
              ★原因は状態バーとログの**両方**が同じことを言っていたこと。

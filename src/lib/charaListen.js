@@ -272,9 +272,15 @@ export function createPushToTalk(opts) {
            優先しすぎて、**押している間に止まる**方を見落としていた。 */
       rec.onend = () => {
         if (!holding) { opts.onState?.('stopped'); rec = null; return; }
+        /* ★キャラが喋っている間（muted）は再起動しない（2026-09-14・実害）
+           ユーザー報告:「会話の流れが変」→ ログの「あなた」行に、直前にキャラが喋った文が
+           そのまま入っていた（「あなたの配信 本当に面白いからいつも見守ってるのだ」等）。
+           ★muted で結果を捨てるだけでは足りない。認識器は再生中に溜めた音を、
+             unmute の**後**に結果として出してくる。→ 再生中は認識器そのものを止める。 */
+        if (muted) return;
         // ★即座に start() すると失敗しやすいので少し置く（常時オン版と同じ）
         setTimeout(() => {
-          if (!holding) return;
+          if (!holding || muted) return;
           try { rec?.start(); } catch { /* 二重startは無視（既に動いている） */ }
         }, 400);
       };
@@ -292,10 +298,20 @@ export function createPushToTalk(opts) {
       try { rec?.stop(); } catch { /* no-op */ }
     },
 
-    /** ★キャラが喋る前に呼ぶ。再生中の認識結果を捨てる。 */
-    mute() { muted = true; },
-    /** ★キャラが喋り終わったら呼ぶ。 */
-    unmute() { muted = false; },
+    /** ★キャラが喋る前に呼ぶ。認識器を止め、溜まっている音も捨てる（abort は結果を返さない）。 */
+    mute() {
+      muted = true;
+      try { rec?.abort(); } catch { /* no-op */ }
+    },
+    /** ★キャラが喋り終わったら呼ぶ。押したままなら認識器を起動し直す。 */
+    unmute() {
+      muted = false;
+      if (!holding) return;
+      setTimeout(() => {
+        if (!holding || muted) return;
+        try { rec?.start(); } catch { /* 既に動いていれば無視 */ }
+      }, 100);
+    },
     get isMuted() { return muted; },
 
     get isHolding() { return holding; }
