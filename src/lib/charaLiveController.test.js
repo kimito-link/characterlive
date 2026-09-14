@@ -358,14 +358,18 @@ describe('★重ね絵(パーツ方式)が DOM に出ている', () => {
     live.destroy();
   });
 
-  it('★transform は1本にまとめて書く(別々に当てると上書き事故になる)', () => {
+  it('★transform は要素ごとに1本ずつ書く(位置は要素・姿勢は絵。吹き出しは回らない)', () => {
     const h = makeHarness();
     h.advance(0);
     h.advance(500);
     const el = h.live.root.querySelector('.nlcl-chara');
-    const t = el.style.transform;
-    // translate/rotate/scale が1つの transform 値に同居していること。
-    expect(t).toMatch(/translate\(.+\) rotate\(.+\) scale\(.+\)/);
+    const stack = el.querySelector('.nlcl-chara__stack');
+    // ★位置（translate）は要素に、姿勢（rotate/scale）は絵にだけ（2026-09-14）。
+    //   要素ごと回すと吹き出しが逆さになって読めない（ユーザー報告）。
+    //   1つの要素に2か所から transform を書かない原則はそのまま（要素・絵で1本ずつ）。
+    expect(el.style.transform).toMatch(/^translate\(.+\)$/);
+    expect(stack.style.transform).toMatch(/^rotate\(.+\) scale\(.+\)$/);
+    expect(el.style.transform).not.toMatch(/rotate/);
     h.live.destroy();
   });
 });

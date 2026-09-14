@@ -74,14 +74,17 @@ export function charaLiveStageCss() {
   position: relative;
   width: ${CHARA_LIVE_SIZE_PX}px;
   height: ${CHARA_LIVE_SIZE_PX}px;
-  /* transform の原点を足元に。浮遊しても「立っている」感じが崩れない。 */
-  transform-origin: 50% 90%;
+  /* ★要素には位置（translate）だけ。姿勢（rotate/scale）は絵（stack）に掛ける。
+     吹き出しは要素の子なので、絵が回っても正立のまま読める。 */
   will-change: transform;
 }
-/* ★重ね絵の器。3枚を同じ矩形に敷く。 */
+/* ★重ね絵の器。3枚を同じ矩形に敷く。姿勢（回転・拡縮）はここに掛かる。 */
 .nlcl-chara__stack {
   position: absolute;
   inset: 0;
+  /* transform の原点を足元に。浮遊しても「立っている」感じが崩れない。 */
+  transform-origin: 50% 90%;
+  will-change: transform;
   /* 立ち絵を背景から浮かせる(映像の上でも輪郭が見える)。
      ★影は stack にだけ掛ける。3枚それぞれに掛けると輪郭が三重になる。 */
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
@@ -272,7 +275,7 @@ export function buildCharaLiveStageDom(doc, resolveUrl) {
 
     el.append(stack, bubble, think);
     root.appendChild(el);
-    nodes[member.id] = { el, face, eyes, mouth, bubble, think };
+    nodes[member.id] = { el, stack, face, eyes, mouth, bubble, think };
   }
   return { root, nodes };
 }
@@ -310,12 +313,20 @@ export function applyCharaLiveFrame(nodes, model, resolveUrl) {
     const speaking = item.mode === 'react' || item.mode === 'answer';
     // 喋っている子はほんの少し大きく前に出す。
     const emphasise = speaking ? 1.06 : 1;
-    const transform =
-      `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px) ` +
+    /* ★回転と拡縮は「絵」（stack）だけに掛け、吹き出しには掛けない（2026-09-14・実害）
+         ユーザー報告:「下にひっくり返るとコメントが読めない」
+         ★喋っている最中に半回転（spin）する動きがあり、要素ごと回すと吹き出しも逆さになる。
+         → 位置（translate）は要素に、姿勢（rotate/scale）は絵にだけ。吹き出しは常に正立のまま。
+         ★1つの要素に transform を2か所から書かない原則はそのまま（要素と絵で1本ずつ）。 */
+    const move = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
+    const pose =
       `rotate(${(rotateDeg + item.tiltDeg).toFixed(2)}deg) ` +
       `scale(${(scale * emphasise).toFixed(4)})`;
-    if (node.el.style.transform !== transform) {
-      node.el.style.transform = transform;
+    if (node.el.style.transform !== move) {
+      node.el.style.transform = move;
+    }
+    if (node.stack && node.stack.style.transform !== pose) {
+      node.stack.style.transform = pose;
     }
     if (node.el.classList.contains('is-speaking') !== speaking) {
       node.el.classList.toggle('is-speaking', speaking);
