@@ -404,8 +404,17 @@
       function aiStatusHtml(ai) {
         return `<span class="dot ${ai.ok ? 'ok' : 'ng'}"></span>AI: ${BRAINS[getBrain()].label} … ${ai.ok ? '使える' : (ai.reason || '使えない')}`;
       }
+      /* ★公開ページ（https://characterlive.link）から VOICEVOX は呼べない（2026-09-14・実測）
+           VOICEVOX は Origin が localhost 以外だと 403 を返す（CORS の既定 = localapps）。
+           起動していても届かないので「未起動」と出すのは誤診。開き方を案内する。 */
+      const isLocalPage = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
       function voiceStatusHtml(vv) {
-        return ` &nbsp; <span class="dot ${vv ? 'ok' : 'ng'}"></span>声: ${vv ? 'VOICEVOX 起動中' : 'VOICEVOX 未起動（文字だけ）'}`;
+        if (vv) return ' &nbsp; <span class="dot ok"></span>声: VOICEVOX 起動中';
+        if (!isLocalPage) {
+          return ' &nbsp; <span class="dot ng"></span>声: 公開ページからは VOICEVOX に届きません'
+            + '（起動していても 403 で拒否されます。声を使うときは <code>npm run talk</code> → localhost で開く）';
+        }
+        return ' &nbsp; <span class="dot ng"></span>声: VOICEVOX 未起動（文字だけ）';
       }
       $('brain').addEventListener('change', async () => {
         const chosen = setBrain($('brain').value);
