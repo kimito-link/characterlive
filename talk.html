@@ -370,8 +370,8 @@
 
       /** ログの別ウィンドウ（開いていれば同じ行をそちらにも出す） */
       let logWin = null;
-      /** 別ウィンドウの状態表示に流す口（開いている間だけ関数が入る） */
-      let popupState = null;
+      /** いまの状態表示の文字（別ウィンドウが読みに来る） */
+      let currentStateText = '';
       /** マイクのトグル（音声入力が使える環境でだけ入る。別ウィンドウの🎤から呼ぶ） */
       let micToggle = null;
 
@@ -418,12 +418,8 @@
         logEl.scrollTop = logEl.scrollHeight;
         // ★たたんでいる／別窓に出している間も、最後の1行は本体に見せる
         $('logLast').textContent = `${who}：${text}`;
-        // ★別ウィンドウにも同じ行を出す（閉じられていたら戻す）
-        if (logWin && !logWin.closed) {
-          const plog = logWin.document.getElementById('log') || logWin.document.body;
-          plog.appendChild(p.cloneNode(true));
-          plog.scrollTop = plog.scrollHeight;
-        } else if (logWin) {
+        // ★別ウィンドウは自分で本体の #log を写しに来る（押し込まない）。閉じられていたら戻す
+        if (logWin && logWin.closed) {
           logWin = null;
           document.body.classList.remove('log-detached');
           $('logPop').textContent = '別ウィンドウ';
@@ -462,25 +458,28 @@
           + '.st{font-size:12px;color:#5f5346;margin-top:6px;min-height:1.6em}</style>');
         d.write('<div id="log"></div><div class="bar"><div class="row"><button type="button" class="mic" id="pmic" title="押すと聞き始めます。もう一度押すと止まります">🎤</button>'
           + '<input id="psay" type="text" placeholder="ここからも話しかけられます（例: たぬ姉、今日うまくいかなかった）" autocomplete="off"><button type="button" id="psend">話す</button></div><div class="st" id="pst"></div></div>');
+        /* ★別ウィンドウは「本体を読みに行く」（2026-09-14・実害「話すボタンが反応しない」）
+           以前は本体側の関数を別窓のボタンに直接結び付けていた。本体を再読み込みすると
+           その関数は古いページと一緒に消え、別窓のボタンは死んだままになる。
+           → 別窓の中の小さなスクリプトが、毎回 window.opener.__talk を見に行く。
+             本体を再読み込みしても opener は新しいページを指すので、ボタンは生き続ける。
+             ログも本体の #log を 400ms ごとに写す（本体側から押し込まない）。 */
+        d.write('<script>'
+          + 'var seen=0;function api(){try{return window.opener&&window.opener.__talk||null;}catch(e){return null;}}'
+          + 'function sync(){var a=api();var st=document.getElementById("pst");if(!a){st.textContent="本体のページが見つかりません（本体を開き直してください）";return;}'
+          + 'var src=a.logEl();var kids=src.children;var box=document.getElementById("log");'
+          + 'if(kids.length<seen){box.innerHTML="";seen=0;}'
+          + 'for(var i=seen;i<kids.length;i++){box.appendChild(kids[i].cloneNode(true));}'
+          + 'if(kids.length!==seen){seen=kids.length;box.scrollTop=box.scrollHeight;}'
+          + 'st.textContent=a.state();document.getElementById("pmic").classList.toggle("is-on",a.micOn());document.getElementById("pmic").disabled=!a.micAvailable();}'
+          + 'setInterval(sync,400);sync();'
+          + 'function send(){var i=document.getElementById("psay");var t=i.value;i.value="";var a=api();if(a)a.speak(t);}'
+          + 'document.getElementById("psend").onclick=send;'
+          + 'document.getElementById("psay").addEventListener("keydown",function(e){if(e.key==="Enter")send();});'
+          + 'document.getElementById("pmic").onclick=function(){var a=api();if(a)a.micToggle();};'
+          + 'document.getElementById("psay").focus();'
+          + '<\/script>');
         d.close();
-        const plog = d.getElementById('log');
-        for (const n of logEl.children) plog.appendChild(n.cloneNode(true));
-        plog.scrollTop = plog.scrollHeight;
-        const psay = d.getElementById('psay');
-        const sendFromPopup = () => { const t = psay.value; psay.value = ''; speak(t); };
-        d.getElementById('psend').addEventListener('click', sendFromPopup);
-        psay.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendFromPopup(); });
-        const pmic = d.getElementById('pmic');
-        if (micToggle) {
-          pmic.addEventListener('click', () => { micToggle(); pmic.classList.toggle('is-on', !!ptt?.isHolding); });
-        } else {
-          pmic.disabled = true;
-          pmic.title = '音声入力が使えません';
-        }
-        // ★本体の状態表示（聞いています／考えています／話しています）を別窓にも映す
-        popupState = (text) => { const el = d.getElementById('pst'); if (el) el.textContent = text || ''; pmic.classList.toggle('is-on', !!ptt?.isHolding); };
-        w.addEventListener('unload', () => { popupState = null; });
-        psay.focus();
         logWin = w;
         document.body.classList.add('log-detached');
         $('logPop').textContent = '戻す';
@@ -979,8 +978,8 @@
        * ------------------------------------------------------------------ */
       function setState(s, text, allowHtml = false) {
         const el = $('state');
-        // ★別ウィンドウにも同じ状態を映す（HTML は渡さない・文字だけ）
-        try { popupState?.(s ? String(text).replace(/<[^>]+>/g, '') : ''); } catch { /* 閉じられた直後は無視 */ }
+        // ★別ウィンドウが読みに来る用（HTML は渡さない・文字だけ）
+        currentStateText = s ? String(text).replace(/<[^>]+>/g, '') : '';
         if (!s) { el.hidden = true; return; }
         el.hidden = false;
         el.dataset.s = s;
@@ -1014,6 +1013,8 @@
       let interimTimer = null;
       /** 途中経過から送った文（同じ確定が後から来たら捨てる） */
       let interimSent = '';
+      /** 直前に出したマイクの知らせ（同じ文の連投を止める） */
+      let lastMicNotice = '';
 
       if (!listenable.ok) {
         $('mic').disabled = true;
@@ -1142,7 +1143,11 @@
                ユーザー報告:「いくら喋っても自分のログが出ない」
                ★聞き取り失敗のたびにマイクが切れると会話が続かない。
                  ログには出す（黙って捨てない）が、聞き続ける。 */
-            log('（マイク）', reason);
+            /* ★同じマイクの知らせは連投しない（2026-09-14・実害）
+               「聞き取れませんでした」がマイクを開けたまま黙っているだけで数秒ごとに並び、
+               ログが埋まった。同じ文が続く間は1回だけ出す。 */
+            if (reason !== lastMicNotice) log('（マイク）', reason);
+            lastMicNotice = reason;
             if (reason.includes('聞き取れませんでした')) {
               setState('listening', roomOn ? '場を聞いています…' : '聞いています…');
               return;
@@ -1284,6 +1289,16 @@
       $('chatter').addEventListener('change', (e) => live.setChatter(e.target.checked));
 
       globalThis.__live = live;
+      /* ★別ウィンドウが読みに来る口（2026-09-14）。本体を再読み込みしても、開いたままの別窓は
+         window.opener 経由でここを見つけ直せる。 */
+      globalThis.__talk = {
+        speak: (t) => speak(t),
+        micToggle: () => { micToggle?.(); },
+        micOn: () => !!ptt?.isHolding,
+        micAvailable: () => !!micToggle,
+        state: () => currentStateText,
+        logEl: () => logEl
+      };
       /* ★開発用の手（マイク無しで場の話を流し込む）。
          ★実装と同じ経路（耳→拍→荷物→think）を通る。UI からは触れない。 */
       globalThis.__room = {
