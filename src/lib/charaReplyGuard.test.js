@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { looksBrokenReply, isRepeatOf, isEchoOf } from './charaReplyGuard.js';
+import { looksBrokenReply, isRepeatOf, isEchoOf, leaksScaffold } from './charaReplyGuard.js';
+
+describe('leaksScaffold — 履歴の見出しを人名として喋っていないか', () => {
+  it('★実害の再現: 「仲間さんが〜」', () => {
+    expect(leaksScaffold('あらあら、どうしたの、あなた？仲間さんが、あなたのお気持ちを尊重してほしいみたいなのね。')).toBe(true);
+    expect(leaksScaffold('相手さんはそう言ってたよ')).toBe(true);
+    expect(leaksScaffold('仲間が言ってたやつだね')).toBe(true);
+  });
+  it('普通の使い方の「仲間」「相手」は通す', () => {
+    expect(leaksScaffold('仲間と一緒に頑張るのだ！')).toBe(false);
+    expect(leaksScaffold('相手のことを考えるのは大事よ')).toBe(false);   // 「相手の気持ち」は人名扱いではない
+    expect(leaksScaffold('いい仲間がいるね')).toBe(false);
+  });
+});
 
 describe('isEchoOf — キャラの台詞の後半だけを拾った反響を見抜く', () => {
   const spoken = '「大丈夫」って言葉は、時に重すぎるのよ。相手の気持ちを尊重して、本当に必要な言葉を贈って。';

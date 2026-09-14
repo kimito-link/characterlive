@@ -24,7 +24,7 @@ import {
   CLOUD_MODEL, CLOUD_SYSTEM_EXTRA, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
 } from './charaCloudRequest.js';
 import { buildUserBlock, roomAsk } from './charaDigest.js';
-import { looksBrokenReply, isRepeatOf, isEchoOf } from './charaReplyGuard.js';
+import { looksBrokenReply, isRepeatOf, isEchoOf, leaksScaffold } from './charaReplyGuard.js';
 import { roleRulesV2 } from './charaRules.v2.js';
 import { memoryDirective } from './charaMemory.js';
 
@@ -263,12 +263,18 @@ export async function think(input) {
        ユーザー報告:「質問が返ってこない」→ りんく が「どんなところがおもしろい、最近の配信は？」と
        質問をそのまま返した。小型モデルは「繰り返さない」だけでは質問文をなぞる。 */
   const askedQuestion = /[?？]|どう|どんな|なに|何|なぜ|いつ|誰|どこ/.test(String(input.text || ''));
+  /* ★短い反応（「ええ？」「うーん」「へえ」）には一言で受ける（2026-09-14・実害）
+       「ええ？」に りんく が2文の説明を返した。相手は反応しただけで、説明を求めていない。
+       ★相槌そのものは前段（charaTurnEnd／耳）で落ちるが、4字以内の反応はここまで来る。 */
+  const shortReact = !room && String(input.text || '').trim().length <= 4;
   const ask = [
     situationLine,
     room
       ? roomAsk(persona.displayName, { pickup: input.room.pickup })
-      : `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`,
-    (!room && askedQuestion) ? '質問には自分の答えを言う。質問文をなぞらない。' : ''
+      : (shortReact
+        ? `${persona.displayName}として一言（1文）で受ける。説明しない。相手の言葉を繰り返さない。`
+        : `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`),
+    (!room && askedQuestion && !shortReact) ? '質問には自分の答えを言う。質問文をなぞらない。' : ''
   ].filter(Boolean).join('');
   // ★場モードでは「相手:「…」」行を作らない（断片を主役にしない）
   const user = buildUserBlock({ text: input.text, hist, ask, room });
@@ -305,7 +311,8 @@ export async function think(input) {
     if (!shape.ok) throw new Error(`返事が壊れている: ${shape.reason}`);
     // ★リレー中は1人1文に固定する（指示）。3人ぶん続くので長いと聞き疲れる。
     // ★リレー中と名指し時は1文に固定（Grok:「役割を変えるだけで、長さは揃える」）
-    const oneSentence = Boolean(input.relay) || Boolean(address);
+    // ★短い反応への返事も1文に切る（指示だけでは小型モデルが守らない）
+    const oneSentence = Boolean(input.relay) || Boolean(address) || shortReact;
     let text = enforcePersona(tidy(raw, oneSentence ? 1 : MAX_SENTENCES), charaId);
 
     /* ★オウム返しを出力側で止める（2026-09-14・実害）
@@ -317,8 +324,13 @@ export async function think(input) {
        ★判定は比率（isEchoOf）。「N字一致」の絶対値は使わない（Grokの正解を落とすため）。 */
     let rephrased = false;
     const PARROT = { ratio: 0.6, minChars: 8 };
-    if (!room && isEchoOf(text, input.text, PARROT)) {
-      const extra = '\n※いまの返事は相手の言葉の写しだった。相手の言葉を使わず、自分の考えを1〜2文で言う。';
+    const parrot = !room && isEchoOf(text, input.text, PARROT);
+    // ★履歴の見出し（仲間:／相手:）を人名として喋った（「仲間さんが〜」）も言い直し対象
+    const leak = leaksScaffold(text);
+    if (parrot || leak) {
+      const extra = parrot
+        ? '\n※いまの返事は相手の言葉の写しだった。相手の言葉を使わず、自分の考えを1〜2文で言う。'
+        : '\n※「仲間」「相手」は名前ではない（会話の見出し）。人として語らない。自分の言葉で1〜2文。';
       let raw2 = null;
       try {
         if (cloud) {
@@ -331,7 +343,8 @@ export async function think(input) {
       const text2 = looksBrokenReply(raw2, user).ok
         ? enforcePersona(tidy(raw2, oneSentence ? 1 : MAX_SENTENCES), charaId)
         : '';
-      text = (text2 && !isEchoOf(text2, input.text, PARROT)) ? text2 : fallbackLine(charaId, input.text);
+      const ok2 = text2 && !isEchoOf(text2, input.text, PARROT) && !leaksScaffold(text2);
+      text = ok2 ? text2 : fallbackLine(charaId, input.text);
       rephrased = true;
     }
 
