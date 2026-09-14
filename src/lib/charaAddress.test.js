@@ -33,6 +33,33 @@ describe('★「同意」と「質問」を区別する', () => {
   });
 });
 
+describe('★「話題にした」と「呼びかけ」を区別する（2026-09-14・「主語として指したのに変」）', () => {
+  it('名前＋助詞で質問の形でなければ「話題」', () => {
+    expect(readAddress('たぬ姉は面白いね')).toEqual({ kind: 'mention', charaId: 'tanunee' });
+    expect(readAddress('こん太に期待してるよ')).toEqual({ kind: 'mention', charaId: 'konta' });
+    expect(readAddress('りんくの声かわいい')).toEqual({ kind: 'mention', charaId: 'rinku' });
+    expect(readAddress('たぬ姉って厳しいよね')).toEqual({ kind: 'mention', charaId: 'tanunee' });
+  });
+  it('名前＋助詞でも質問・依頼なら「質問」（本人に答えさせる）', () => {
+    expect(readAddress('たぬ姉はどう思う？').kind).toBe('question');
+    expect(readAddress('こん太に教えてほしい').kind).toBe('question');
+    expect(readAddress('りんくは元気かな').kind).toBe('question');
+  });
+  it('呼びかけ（読点・感嘆）は従来どおり「質問」', () => {
+    expect(readAddress('たぬ姉、今日うまくいかなかった').kind).toBe('question');
+    expect(readAddress('こん太！').kind).toBe('question');
+  });
+  it('同意は話題より優先される', () => {
+    expect(readAddress('たぬ姉の言うとおりだ').kind).toBe('agree');
+  });
+  it('話題のときは「言われた側として受ける・質問に答える形にしない」と指示する', () => {
+    const d = addressDirective({ kind: 'mention', charaId: 'tanunee' });
+    expect(d).toContain('話題にした');
+    expect(d).toContain('質問に答える形にしない');
+    expect(d).not.toContain('ツッコミ1発');   // 役割の答え方は付けない（呼びかけではないので）
+  });
+});
+
 describe('★同意には新しい意見を足さない（同意を会議にしない）', () => {
   it('受けるだけにする指示が入る', () => {
     const d = addressDirective({ kind: 'agree', charaId: 'tanunee' });

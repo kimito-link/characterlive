@@ -24,13 +24,24 @@
 import { PERSONA_IDS, PERSONAS } from './charaPersona.v1.js';
 import { detectAddressedChara } from './charaLiveState.js';
 
-/** @typedef {'question'|'agree'|'none'} AddressKind */
+/** @typedef {'question'|'agree'|'mention'|'none'} AddressKind */
+
+/** 名前の表記ゆれ（detectAddressedChara と同じ並び）。「名前＋助詞」の判定に使う。 */
+const NAME_ALIASES = {
+  rinku: ['りんく', 'リンク', 'link', 'rinku'],
+  konta: ['こん太', 'コン太', 'こんた', 'コンタ', 'konta'],
+  tanunee: ['たぬ姉', 'たぬねえ', 'タヌ姉', 'たぬネエ', 'tanunee', 'tanu']
+};
 
 /**
  * 名指しの種類を見分ける（純関数）。
  *
  * ★「こん太、どう思う？」= 質問 → 答える
  * ★「たぬ姉の言うとおりだ」= 同意 → 1文だけ受ける。新しい意見は出さない
+ * ★「たぬ姉は面白いね」「こん太に期待してるよ」= 話題（2026-09-14）
+ *     名前を**主語・目的語**にしただけで、本人への呼びかけではない。
+ *     ユーザー報告:「主語として指したのに変」→ 質問として答えていた。
+ *     → 話題にされた側として短く受ける（質問に答える形にしない）。
  *
  * @param {string} text
  * @returns {{ kind:AddressKind, charaId:string|null }}
@@ -46,6 +57,21 @@ export function readAddress(text) {
     '(の(言|い)う(とおり|通り)|の言うことも?わかる|が正しい|に賛成|もそう思|に同意)'
   ).test(t);
   if (agree) return { kind: 'agree', charaId };
+
+  /* ★話題の型: 名前の直後に助詞（は・が・に・を・の・って・も・と）が続き、
+       かつ質問・依頼の形（？・どう思う・教えて・〜して・かな）を含まない。
+     ★「たぬ姉はどう思う？」は助詞付きでも質問なので、質問判定を先に見る。 */
+  const asking = /[?？]|どう(思|す|かな)|教えて|してくれ|して[。！!]?$|かな[。！!]?$|ですか|ますか|の[?？]$/.test(t);
+  if (!asking) {
+    const lower = t.toLowerCase();
+    for (const alias of NAME_ALIASES[charaId] || []) {
+      const at = lower.indexOf(alias.toLowerCase());
+      if (at < 0) continue;
+      const after = t.slice(at + alias.length, at + alias.length + 2);
+      if (/^(は|が|に|を|の|って|も|と|へ)/.test(after)) return { kind: 'mention', charaId };
+      break;
+    }
+  }
 
   return { kind: 'question', charaId };
 }
@@ -98,6 +124,13 @@ export function addressDirective(input) {
     /* ★同意には新しい意見を足さない（Grok:「そうなのだ」で止める）。
        ここで意見を足すと、同意が議論に変わる。 */
     lines.push('相手はあなたに同意しただけ。受けるだけにする。新しい意見を足さない。');
+    return lines.join('');
+  }
+
+  if (input.kind === 'mention') {
+    /* ★話題にされただけ（2026-09-14）。呼びかけではないので、質問に答える形にしない。
+       「たぬ姉は面白いね」→「あら、そう？」のように、言われた側として短く受ける。 */
+    lines.push('相手はあなたを呼んだのではなく、あなたのことを話題にした。言われた側として短く受ける。質問に答える形にしない。');
     return lines.join('');
   }
 
