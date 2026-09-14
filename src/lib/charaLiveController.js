@@ -293,6 +293,11 @@ export function startCharaLive(deps) {
         lastChatterSpeaker = line.charaId;
         lastChatterAt = t;
         chatterTurn += 1;
+        /* ★自発発話を外に知らせる（2026-09-14）。配信用の窓（overlay.html）に同じ台詞を映すため。
+           ★ここで知らせないと、配信用の窓は自分で別の台詞を選んでしまい、手元と配信で言葉が食い違う。 */
+        if (typeof deps.onChatter === 'function') {
+          try { deps.onChatter({ charaId: line.charaId, text: line.text, durationMs: CHATTER_HOLD_MS }); } catch { /* 外の都合で描画を止めない */ }
+        }
       } else {
         // 塞がっていた場合も間隔だけ進めて、次のフレームで連打しない。
         lastChatterAt = t;

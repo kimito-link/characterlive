@@ -34,6 +34,10 @@ GitHub（kimito-link/characterlive）と連携済みなので、push でも反�
 
 - `/` → `index.html`（LP）
 - `/demo.html` → 開発用デモ（3人を手動で動かせる。LPには載せない）
+- `/talk` → 会話画面（開発用・マイク／声／場を聞く／別ウィンドウ）
+- `/overlay` → 配信用の窓（キャラと吹き出しだけを緑背景で映す。`/talk` の「配信用の窓（クロマキー）」から開く。
+  OBS は「ウィンドウキャプチャ」でこの窓を選び、フィルタ「クロマキー」（緑）。`?bg=blue|magenta|transparent` も可。
+  ★OBS の「ブラウザソース」で直接開くと本体の合図（BroadcastChannel）が届かないので、いまはウィンドウキャプチャで使う）
 
 ローカルで見るときは `npm run demo` → http://localhost:5173/
 （★ルートはLP。デモは /demo.html）

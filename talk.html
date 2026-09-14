@@ -278,6 +278,8 @@
              聞こえた話を「耳」に貯めて、拍が来たら話題に一言だけ言う。
              1対1の「押して話す」経路は変えない。 -->
         <label title="配信の場（スペース・ニコ生など）の話を貯めて、間が来たら話題に一言だけ言います"><input type="checkbox" id="room" /> 場を聞く</label>
+        <!-- ★配信用の窓（2026-09-14）。キャラと吹き出しだけを緑背景で映す。OBS でウィンドウキャプチャ＋クロマキー -->
+        <button type="button" id="overlayOpen" class="mini" title="キャラと吹き出しだけを緑背景で映す窓を開きます。OBS で「ウィンドウキャプチャ」→フィルタ「クロマキー（緑）」で配信画面に重ねられます">配信用の窓（クロマキー）</button>
       </div>
       <p class="hint">
         ★名前を呼ぶとその子が答えます（りんく / こん太 / たぬ姉）。呼ばなければ誰かが答えます。
@@ -320,14 +322,38 @@
       const $ = (id) => document.getElementById(id);
       const logEl = $('log');
 
+      /* ★配信用の窓（overlay.html）へ舞台の合図を写す（2026-09-14）
+           本体はいつも通り動き、同じ合図（返事・思考・閉じる・自発発話）を BroadcastChannel で流す。
+           配信用の窓は同じ部品でそれを描く。OBS はその窓をウィンドウキャプチャ＋クロマキーで重ねる。 */
+      const stageBus = new BroadcastChannel('characterlive-stage');
+      const postStage = (m) => { try { stageBus.postMessage(m); } catch { /* 窓が無くても本体は止めない */ } };
+      let overlayReady = false;
+      stageBus.onmessage = (e) => { if (e.data?.type === 'overlay-ready') { overlayReady = true; log('（配信用の窓）', '繋がりました。本体の会話がそのまま映ります'); } };
+      function mirrorStage(l) {
+        return {
+          ...l,
+          onStreamerAddressed(input) {
+            const r = l.onStreamerAddressed(input);
+            postStage({ type: 'addressed', input: { ...input, charaId: input?.charaId ?? r } });
+            return r;
+          },
+          beginThinking(input = {}) { const r = l.beginThinking(input); postStage({ type: 'thinking', input }); return r; },
+          endThinking(input = {}) { const r = l.endThinking(input); postStage({ type: 'endThinking', input }); return r; },
+          closeChara(charaId) { l.closeChara(charaId); postStage({ type: 'close', charaId }); },
+          onCommentSpokenEnd() { l.onCommentSpokenEnd(); postStage({ type: 'spokenEnd' }); }
+        };
+      }
+
       // ★自発発話は既定オフ。まず「話しかけたら返る」だけを確かめたいため。
-      const live = startCharaLive({
+      const live = mirrorStage(startCharaLive({
         doc: document,
         mount: $('stage'),
         resolveUrl: (p) => p,
         getHeatLevel: () => 0.35,
-        chatter: false
-      });
+        chatter: false,
+        // ★自発発話の台詞も配信用の窓へ（同じ言葉を映す）
+        onChatter: (c) => postStage({ type: 'chatter', ...c })
+      }));
 
       /** 直前に喋った子（同じ子が続けて答えないように） */
       let lastSpeaker = null;
@@ -1345,6 +1371,13 @@
         if (e.key === 'Enter') speak($('say').value);
       });
       $('chatter').addEventListener('change', (e) => live.setChatter(e.target.checked));
+      /* ★配信用の窓を開く。OBS 側は「ウィンドウキャプチャ」でこの窓を選び、フィルタ「クロマキー」（緑）。
+         ★通常の窓として開く（ポップアップ扱いだと OBS のウィンドウ一覧に出にくいことがある）。 */
+      $('overlayOpen').addEventListener('click', () => {
+        const w = window.open('overlay.html', 'characterlive-overlay', 'width=960,height=540,resizable=yes');
+        if (!w) { log('（配信用の窓）', '開けませんでした（ポップアップがブロックされています）'); return; }
+        log('（配信用の窓）', '開きました。OBS: ソース「ウィンドウキャプチャ」でこの窓を選ぶ → フィルタ「クロマキー」（色: 緑）。窓の大きさは配信の解像度に合わせて広げてください');
+      });
 
       globalThis.__live = live;
       /* ★別ウィンドウが読みに来る口（2026-09-14）。本体を再読み込みしても、開いたままの別窓は
