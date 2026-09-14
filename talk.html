@@ -367,6 +367,38 @@
          'ended' の合図と実際に音が止まるまでにずれがある（出力側のバッファ）。
          ★700ms は暫定。「（エコー）」の行が出る頻度で調整する。 */
       const UNMUTE_MS = 700;
+      /** log() が最後に作った行（速さの内訳を後から足す） */
+      let logLastRow = null;
+      /** 最後にマイクから何か聞こえた時刻／送信までの待ち（速さの内訳用） */
+      let lastHeardAtMs = 0;
+      let pendingWaitMs = null;
+
+      /* ★声は文ごとに分けて、1文目が出来た時点で鳴らし始める（2026-09-14・「反応がちょっと遅い」）
+         合成は文字数に比例する（実測: 26字で約900ms）。3文まとめて待つと最初の音まで長い。
+         1文目（短い）だけ先に合成して鳴らし、残りは鳴っている間に裏で合成する。 */
+      function splitSentences(text) {
+        const t = String(text || '').trim();
+        const parts = (t.match(/[^。！？!?]+[。！？!?]?/g) || [t]).map((s) => s.trim()).filter(Boolean);
+        return parts.length ? parts : [t];
+      }
+      /**
+       * 1文目の wav（合成済み）を鳴らしながら、残りの文を順に合成して鳴らす。
+       * @returns {Promise<void>} 全部鳴り終わったら
+       */
+      async function playChunked(firstWav, restParts, voice) {
+        let next = restParts.length ? synthesize(restParts[0], voice) : null;
+        let wav = firstWav;
+        for (let i = 0; ; i += 1) {
+          if (wav) {
+            playing?.stop();
+            playing = playWav(wav, {});
+            await playing.done;
+          }
+          if (i >= restParts.length) break;
+          wav = await next;   // ★鳴らしている間に出来上がっている（はず）
+          next = (i + 1 < restParts.length) ? synthesize(restParts[i + 1], voice) : null;
+        }
+      }
 
       /** ログの別ウィンドウ（開いていれば同じ行をそちらにも出す） */
       let logWin = null;
@@ -411,13 +443,15 @@
         if (ms != null) {
           const s = document.createElement('span');
           s.className = 'ms';
-          s.textContent = `${ms}ms`;
+          // ★数値なら「1024ms」、文字列なら内訳（「待ち1500 推論1024 声310ms」）をそのまま出す
+          s.textContent = typeof ms === 'string' ? ms : `${ms}ms`;
           p.appendChild(s);
         }
         logEl.appendChild(p);
         logEl.scrollTop = logEl.scrollHeight;
         // ★たたんでいる／別窓に出している間も、最後の1行は本体に見せる
         $('logLast').textContent = `${who}：${text}`;
+        logLastRow = p;   // ★あとから内訳（声の合成ms）を足せるように行を覚える
         // ★別ウィンドウは自分で本体の #log を写しに来る（押し込まない）。閉じられていたら戻す
         if (logWin && logWin.closed) {
           logWin = null;
@@ -752,6 +786,8 @@
       function sendHeard(said) {
         const t = String(said || '').trim();
         if (!t) return;
+        // ★速さの内訳: 最後に聞こえてから送るまでの待ち
+        pendingWaitMs = lastHeardAtMs ? Date.now() - lastHeardAtMs : null;
         const recent = history.filter((h) => h.who !== '配信者').slice(-3);
         /* ★全体の重なり（isRepeatOf）と、拾った側から見た含まれ具合（isEchoOf）の両方で見る。
            実害: 台詞の後半だけを拾うと全体比率は 0.43 で通ってしまった（2026-09-14）。 */
@@ -822,7 +858,18 @@
         if ($('voice').checked && voiceOk) {
           // ★配信者が選んだ声を使う（人格の既定より優先）
           setState('speaking', `${persona.displayName}が話しています`);
-          const wav = await synthesize(res.text, { ...persona.voice, styleId: voices[who] });
+          /* ★1文目だけ先に合成して鳴らし始める（残りは鳴っている間に合成） */
+          const voice = { ...persona.voice, styleId: voices[who] };
+          const parts = splitSentences(res.text);
+          const row = logLastRow;
+          const tSynth = performance.now();
+          const wav = await synthesize(parts[0], voice);
+          const synthMs = Math.round(performance.now() - tSynth);
+          // ★速さの内訳をその行に足す（待ち＝聞き終わり→送信、推論、声＝1文目の合成）
+          if (row?.querySelector('.ms')) {
+            row.querySelector('.ms').textContent = `待ち${pendingWaitMs ?? '-'} 推論${res.ms} 声${synthMs}ms`;
+          }
+          pendingWaitMs = null;
           if (wav) {
             playing?.stop();
             live.onStreamerAddressed({
@@ -837,8 +884,7 @@
                ★マイクとスピーカーが同じ部屋にある以上、必ず起きる。
                  仕組みは前からあったのに、一度も呼んでいなかった。 */
             ptt?.mute();
-            playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
-            await playing.done;
+            await playChunked(wav, parts.slice(1), voice);
             live.onCommentSpokenEnd();
             /* ★少し待ってから解除する。
                再生が終わった瞬間はまだ残響が入るため（実測で決めた値ではないので、
@@ -946,14 +992,15 @@
         const persona = PERSONAS[who];
         if ($('voice').checked && voiceOk) {
           setState('speaking', `${persona.displayName}が話しています`);
-          const wav = await synthesize(text, { ...persona.voice, styleId: voices[who] });
+          const voice = { ...persona.voice, styleId: voices[who] };
+          const parts = splitSentences(text);
+          const wav = await synthesize(parts[0], voice);
           if (wav) {
             playing?.stop();
             live.onStreamerAddressed({ prompt: promptText, answer: text, durationMs: 60000, charaId: who });
             ptt?.mute();
             const fromMs = Date.now();
-            playing = playWav(wav, { onEnd: () => live.onCommentSpokenEnd() });
-            await playing.done;
+            await playChunked(wav, parts.slice(1), voice);
             live.onCommentSpokenEnd();
             setTimeout(() => ptt?.unmute(), UNMUTE_MS);
             transcript = markBlackout(transcript, { fromMs, toMs: Date.now() + 250 });
@@ -1040,6 +1087,7 @@
           get preferLocal() { return preferLocal; },
           // ★開発用の手: globalThis.__hear({final, text}) でマイク無しに同じ経路へ流し込める
           onHeard: (globalThis.__hear = ({ final, text }) => {
+            lastHeardAtMs = Date.now();   // ★速さの内訳用（最後に何か聞こえた時刻）
             /* ★途中経過(final=false)と確定(final=true)を区別する。
 
                ユーザー報告(2026-09-05):「自分のことばがうまくログに残らないかも」
@@ -1079,7 +1127,12 @@
                 $('say').value = '';
                 log('（認識）', `確定が来ないので途中経過から送ります:「${said}」`);
                 sendHeard(said);
-              }, resolveTurnEnd(stable).waitMs + 600);
+              /* ★待ちは短めでよい（2026-09-14・ユーザー報告「反応がちょっと遅い」）
+                 途中経過は喋っている間ずっと更新される。「一定時間変わらない」こと自体が
+                 言い終わりの証拠なので、確定と同じ 2.5 秒＋600 は待ちすぎだった（最長 3.1 秒）。
+                 → 完結度に応じた待ち（250/900/2500）を 1.5 秒で頭打ちにして +200。
+                 ★言葉を奪うようなら（ログの「（認識）」行が途中で切れている）ここを戻す。 */
+              }, Math.min(resolveTurnEnd(stable).waitMs, 1500) + 200);
             }
             if (final) {
               clearTimeout(interimTimer);
@@ -1297,7 +1350,17 @@
         micOn: () => !!ptt?.isHolding,
         micAvailable: () => !!micToggle,
         state: () => currentStateText,
-        logEl: () => logEl
+        logEl: () => logEl,
+        // ★開発用: 文ごとの合成→再生を、AI抜きで試す
+        say: async (text, who = 'rinku') => {
+          const voice = { ...PERSONAS[who].voice, styleId: voices[who] };
+          const parts = splitSentences(text);
+          const t0 = performance.now();
+          const wav = await synthesize(parts[0], voice);
+          const firstMs = Math.round(performance.now() - t0);
+          if (wav) await playChunked(wav, parts.slice(1), voice);
+          return { parts: parts.length, firstMs, totalMs: Math.round(performance.now() - t0) };
+        }
       };
       /* ★開発用の手（マイク無しで場の話を流し込む）。
          ★実装と同じ経路（耳→拍→荷物→think）を通る。UI からは触れない。 */
