@@ -11,7 +11,7 @@
  *     ★配信の横だと、短い『うん』でもうるさい」
  */
 import { describe, it, expect } from 'vitest';
-import { readAddress, narrowContext, addressDirective, silentMembers } from './charaAddress.js';
+import { readAddress, narrowContext, addressDirective, silentMembers, mentionByOtherDirective } from './charaAddress.js';
 import { buildSystemPrompt } from './charaPersona.v1.js';
 
 describe('★「同意」と「質問」を区別する', () => {
@@ -51,6 +51,12 @@ describe('★「話題にした」と「呼びかけ」を区別する（2026-09
   });
   it('同意は話題より優先される', () => {
     expect(readAddress('たぬ姉の言うとおりだ').kind).toBe('agree');
+  });
+  it('★話題にされた本人ではなく仲間が拾う指示（名前を出してよい・本人ではない）', () => {
+    const d = mentionByOtherDirective({ mentionedName: 'たぬ姉' });
+    expect(d).toContain('たぬ姉のことを話題にした');
+    expect(d).toContain('たぬ姉本人ではない');
+    expect(d).toContain('1文だけ');
   });
   it('話題のときは「言われた側として受ける・質問に答える形にしない」と指示する', () => {
     const d = addressDirective({ kind: 'mention', charaId: 'tanunee' });

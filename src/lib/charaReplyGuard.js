@@ -68,6 +68,36 @@ export function isRepeatOf(prev, next, threshold = 0.6) {
   return union > 0 && inter / union >= threshold;
 }
 
+/**
+ * マイクで拾った文が、キャラが直前に喋った文の「反響」か（純関数）。
+ *
+ * ★isRepeatOf（全体の重なり比率）では足りなかった実害（2026-09-14）:
+ *   拾うのは台詞の**後半だけ**（再生終了の合図と実際に音が止まるまでのずれ）。
+ *   「の気持ちを尊重して本当に必要な言葉を送って」は45字の台詞の後半20字で、
+ *   全体比率だと 0.43 になり通ってしまった。
+ * → 拾った文の側から見て「その2文字の並びのほとんどが台詞の中にある」なら反響とみなす。
+ *   ★これも比率（拾った文の中の割合）。「N字一致で落とす」の絶対値は使わない。
+ *
+ * @param {string} heard  マイクで拾った文
+ * @param {string} spoken キャラが喋った文
+ * @param {{ minChars?:number, ratio?:number }} [opt]
+ * @returns {boolean}
+ */
+export function isEchoOf(heard, spoken, opt = {}) {
+  const minChars = Number(opt.minChars) > 0 ? Number(opt.minChars) : 6;
+  const ratio = Number(opt.ratio) > 0 ? Number(opt.ratio) : 0.7;
+  const h = norm(heard);
+  const s = norm(spoken);
+  if (h.length < minChars || !s) return false;
+  if (s.includes(h)) return true;
+  const gh = bigrams(h);
+  const gs = bigrams(s);
+  if (!gh.size) return false;
+  let inter = 0;
+  for (const g of gh) if (gs.has(g)) inter += 1;
+  return inter / gh.size >= ratio;
+}
+
 function norm(s) {
   return String(s || '').replace(/[、。！？!?\s「」…]/g, '').trim();
 }

@@ -156,6 +156,19 @@ export function addressDirective(input) {
 }
 
 /**
+ * 仲間が話題にされたとき、本人以外が拾うための一言（純関数・2026-09-14）。
+ * ★ユーザー要望:「たぬ姉に言ったのに、他の子が答えてほしい」
+ *   「たぬ姉は面白いね」→ こん太「そうだよね、たぬ姉のツッコミ…」のように、
+ *   話題にされた本人ではなく仲間が受ける方が、3人いる意味が出る。
+ * @param {{ mentionedName:string }} input
+ * @returns {string}
+ */
+export function mentionByOtherDirective(input) {
+  const name = String(input?.mentionedName || '仲間');
+  return `1文だけ。相手は仲間の${name}のことを話題にした。あなたは${name}本人ではない。仲間として短く一言。${name}の名前は出してよい。`;
+}
+
+/**
  * 名指しされていない子は黙る（純関数）。
  * ★Grok:「相槌も打たない。配信の横だと短い『うん』でもうるさい。動きだけでいい」
  *

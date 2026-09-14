@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { looksBrokenReply, isRepeatOf } from './charaReplyGuard.js';
+import { looksBrokenReply, isRepeatOf, isEchoOf } from './charaReplyGuard.js';
+
+describe('isEchoOf — キャラの台詞の後半だけを拾った反響を見抜く', () => {
+  const spoken = '「大丈夫」って言葉は、時に重すぎるのよ。相手の気持ちを尊重して、本当に必要な言葉を贈って。';
+  it('★実害の再現: 台詞の後半だけ（全体比率では 0.43 で通っていた）', () => {
+    expect(isRepeatOf(spoken, 'の気持ちを尊重して本当に必要な言葉を送って', 0.5)).toBe(false);   // 旧判定は通す
+    expect(isEchoOf('の気持ちを尊重して本当に必要な言葉を送って', spoken)).toBe(true);           // 新判定は捕まえる
+    expect(isEchoOf('本当に必要な言葉を送って', spoken)).toBe(true);
+    expect(isEchoOf('言葉は魔法じゃない ただ相手の心に届くかどうか', '言葉は、魔法じゃない。ただ、相手の心に届くかどうか。')).toBe(true);
+  });
+  it('本人の別の言葉は通す（同じ話題でも）', () => {
+    expect(isEchoOf('大丈夫って言われても不安なんだよね', spoken)).toBe(false);
+    expect(isEchoOf('今日はこれからゲームするよ', spoken)).toBe(false);
+  });
+  it('短い言葉は判定しない（「うん」「大丈夫」が台詞に含まれていても捨てない）', () => {
+    expect(isEchoOf('大丈夫', spoken)).toBe(false);
+    expect(isEchoOf('うん', spoken)).toBe(false);
+  });
+});
 
 describe('isRepeatOf — 直前の自分の返事の使い回しを見抜く（比率で判定）', () => {
   it('同じ文はもちろん、句読点だけ違う文も繰り返し', () => {

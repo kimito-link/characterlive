@@ -18,7 +18,7 @@ import { PERSONAS, PERSONA_IDS, buildSystemPrompt, DEFAULT_MODE } from './charaP
 import { detectAddressedChara } from './charaLiveState.js';
 import { readMood, moodDirective } from './charaMood.js';
 import { toneDirective } from './charaVoiceTone.js';
-import { readAddress, narrowContext, addressDirective } from './charaAddress.js';
+import { readAddress, narrowContext, addressDirective, mentionByOtherDirective } from './charaAddress.js';
 import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js';
 import {
   CLOUD_MODEL, CLOUD_SYSTEM_EXTRA, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
@@ -120,8 +120,15 @@ export async function probeAi() {
  * @returns {CharaId}
  */
 export function pickResponder(text, lastSpeaker = null) {
-  const named = detectAddressedChara(text);
-  if (named) return /** @type {CharaId} */ (named);
+  const addr = readAddress(text);
+  /* ★話題にされただけ（「たぬ姉は面白いね」）なら本人以外が拾う（2026-09-14）
+       ユーザー要望:「たぬ姉に言ったのに、他の子が答えてほしい」 */
+  if (addr.kind === 'mention' && addr.charaId) {
+    const others = PERSONA_IDS.filter((id) => id !== addr.charaId && id !== lastSpeaker);
+    const pool = others.length ? others : PERSONA_IDS.filter((id) => id !== addr.charaId);
+    return /** @type {CharaId} */ (pool[Math.floor(Math.random() * pool.length)]);
+  }
+  if (addr.charaId) return /** @type {CharaId} */ (addr.charaId);
   const pool = PERSONA_IDS.filter((id) => id !== lastSpeaker);
   const list = pool.length ? pool : PERSONA_IDS;
   // 決定論にしない（同じことを言っても違う子が答えるほうが自然）
@@ -184,9 +191,13 @@ export async function think(input) {
 
   const addressed = readAddress(input.text);
   const ctx = narrowContext({ text: input.text, charaId, history: input.history });
-  const address = addressed.charaId === charaId
-    ? addressDirective({ kind: addressed.kind, charaId, prevName: ctx.prevName, prevLine: ctx.prevLine })
-    : '';
+  let address = '';
+  if (addressed.charaId === charaId) {
+    address = addressDirective({ kind: addressed.kind, charaId, prevName: ctx.prevName, prevLine: ctx.prevLine });
+  } else if (addressed.kind === 'mention' && addressed.charaId) {
+    // ★仲間が話題にされた。本人ではなく、この子が仲間として拾う（2026-09-14）
+    address = mentionByOtherDirective({ mentionedName: PERSONAS[addressed.charaId]?.displayName });
+  }
 
   /* ★★system プロンプトは固定する（2026-09-06・11秒問題の真因）
 
