@@ -78,7 +78,13 @@
         padding: 6px 18px; border-top: 1px solid var(--line); background: var(--bg2);
         font-size: 12px; color: var(--muted);
       }
-      .logbar__btns { display: flex; gap: 6px; }
+      .logbar__btns { display: flex; gap: 6px; flex: none; }
+      .logbar__last {
+        flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: var(--ink); font-size: 13px;
+      }
+      /* ログが見えているときは重複するので出さない */
+      body:not(.log-folded):not(.log-detached) .logbar__last { visibility: hidden; }
       #log {
         height: clamp(120px, 22vh, 240px); overflow-y: auto; padding: 8px 18px 10px;
         background: var(--bg2);
@@ -202,6 +208,8 @@
     <!-- ★ログは舞台を押さない（高さ固定）。たたむ／別ウィンドウで分離できる（2026-09-14） -->
     <div class="logbar">
       <span>会話ログ</span>
+      <!-- ★ログをたたんだ／別窓に出した間も、最後のやりとりだけは本体に見せる（届いたことが分かるように） -->
+      <span id="logLast" class="logbar__last"></span>
       <span class="logbar__btns">
         <button type="button" id="logFold" class="mini" title="ログ欄を隠して舞台を広くします">たたむ</button>
         <button type="button" id="logPop" class="mini" title="ログを別ウィンドウに出します（配信画面と分けられます）">別ウィンドウ</button>
@@ -368,6 +376,8 @@
         }
         logEl.appendChild(p);
         logEl.scrollTop = logEl.scrollHeight;
+        // ★たたんでいる／別窓に出している間も、最後の1行は本体に見せる
+        $('logLast').textContent = `${who}：${text}`;
         // ★別ウィンドウにも同じ行を出す（閉じられていたら戻す）
         if (logWin && !logWin.closed) {
           const plog = logWin.document.getElementById('log') || logWin.document.body;
@@ -916,6 +926,10 @@
       let heardFinal = '';
       /** 話し終わりを待つタイマー（黙って2秒でこちらから送る） */
       let sendTimer = null;
+      /** 途中経過が変わらなくなったら送る保険タイマー（確定が来ない認識器向け・2026-09-14） */
+      let interimTimer = null;
+      /** 途中経過から送った文（同じ確定が後から来たら捨てる） */
+      let interimSent = '';
 
       if (!listenable.ok) {
         $('mic').disabled = true;
@@ -939,7 +953,8 @@
 
         ptt = createPushToTalk({
           get preferLocal() { return preferLocal; },
-          onHeard: ({ final, text }) => {
+          // ★開発用の手: globalThis.__hear({final, text}) でマイク無しに同じ経路へ流し込める
+          onHeard: (globalThis.__hear = ({ final, text }) => {
             /* ★途中経過(final=false)と確定(final=true)を区別する。
 
                ユーザー報告(2026-09-05):「自分のことばがうまくログに残らないかも」
@@ -956,6 +971,43 @@
             /* ★場を聞くモード（2026-09-08）: 確定文を耳に貯めるだけ。
                ★sendTimer を動かさない・speak() に渡さない・history に「配信者」として入れない。
                喋るかどうかは拍（tickRoom）が決める。 */
+            /* ★確定が来ない認識器への保険（2026-09-14・実害）
+               ユーザー報告:「出てきても会話が届いたことにならず止まっている」
+               画面は「聞いています…「本当に」」のまま＝途中経過は届くのに確定(final)が来ない。
+               端末内の音声認識は、区切りを打たず途中経過を返し続けることがある。
+               → 途中経過の文字が一定時間変わらなければ、確定とみなして送る。
+                 待ち時間は確定と同じ「文の完結度」で決め、少し余分に待つ（途中経過は揺れるため）。
+               ★同じ文の確定が後から来たら二重に送らない（interimSent で照合）。 */
+            if (!final && text) {
+              const stable = heardFinal + text;
+              clearTimeout(interimTimer);
+              interimTimer = setTimeout(() => {
+                const said = stable.trim();
+                if (!said || said === interimSent) return;
+                if (($('say').value || '').trim() !== said && !roomOn) return;   // まだ揺れている
+                interimSent = said;
+                if (roomOn) {
+                  transcript = appendFinal(transcript, { text: said, tMs: Date.now(), source: 'room' });
+                  return;
+                }
+                heardFinal = '';
+                $('say').value = '';
+                log('（認識）', `確定が来ないので途中経過から送ります:「${said}」`);
+                speak(said);
+              }, resolveTurnEnd(stable).waitMs + 600);
+            }
+            if (final) {
+              clearTimeout(interimTimer);
+              // ★途中経過から既に送った文と同じなら捨てる（二重送信を防ぐ）
+              const t = (heardFinal + text).trim();
+              if (interimSent && (t === interimSent || interimSent.endsWith(t) || t.endsWith(interimSent))) {
+                interimSent = '';
+                heardFinal = '';
+                $('say').value = '';
+                return;
+              }
+              interimSent = '';
+            }
             if (roomOn) {
               if (final) transcript = appendFinal(transcript, { text, tMs: Date.now(), source: 'room' });
               if (!roomBusy) setState('listening', '場を聞いています…' + (text ? `「${text}」` : ''));
@@ -997,7 +1049,7 @@
                  → 言い切っていれば250ms、続きそうなら2500ms。
                    Grokが無音ではなく「文が完結したか」で判断しているのと同じ考え。 */
             }
-          },
+          }),
           onState: (st) => {
             if (st === 'listening') setState('listening', '聞いています…');
           },
@@ -1072,6 +1124,7 @@
         const micOff = () => {
           if (!ptt.isHolding) return;
           clearTimeout(sendTimer);
+          clearTimeout(interimTimer);
           $('mic').classList.remove('is-on');
           $('micBars').hidden = true;
           micPermission().then((st) => renderMicState(st));
