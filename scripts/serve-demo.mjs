@@ -23,6 +23,9 @@ const TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8'
 };

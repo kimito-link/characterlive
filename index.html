@@ -184,6 +184,13 @@
         background: var(--bg2); color: var(--navy); font-size: 11.5px; font-weight: 700;
         vertical-align: middle; white-space: nowrap;
       }
+      /* 使い方の4コマ */
+      .howto-fig { margin: 0 0 20px; }
+      .howto-fig img {
+        display: block; width: 100%; height: auto; border-radius: 14px;
+        border: 1px solid var(--line); box-shadow: 0 2px 10px rgba(44, 33, 23, 0.08);
+      }
+      .howto-fig figcaption { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); text-align: center; }
       /* やらないこと */
       .nots { display: grid; gap: 10px; }
       .not {
@@ -546,6 +553,19 @@
         <p class="lead">
           <a href="/talk">characterlive.link/talk</a> を Chrome で開くだけです。マイクと声を使う版は、まだ開発版として置いています。
         </p>
+        <!-- ★4コマ（2026-09-14）。文章より先に絵で分かるように、手順の上に置く。
+             ★webp を優先し、jpg を予備に（両方 assets/howto/）。 -->
+        <figure class="howto-fig">
+          <picture>
+            <source srcset="assets/howto/howto-4koma.webp" type="image/webp" />
+            <img
+              src="assets/howto/howto-4koma.jpg"
+              width="1254" height="1254" loading="lazy" decoding="async"
+              alt="4コマの使い方。①開くだけ: Chrome で characterlive.link/talk を開く。登録もインストールもいらない。②話しかける: マイクを1回押して話す。黙ると誰かが返す。名前を呼ぶとその子が答え、話題にすると他の子が拾う。③声は VOICEVOX（無料）: 起動してページを再読み込みし「声を出す」にチェック。無くても文字だけで動く。④配信に乗せる（OBS なしでも OK）: 「浮かせる」で最前面の小窓に出る。画面共有ならそのまま映る。OBS なら配信用の窓をウィンドウキャプチャしてクロマキー（緑）。スマホ配信には乗せられず、小窓は透明にはならない。まだ開発版で無料。"
+            />
+          </picture>
+          <figcaption>4コマでざっくり。詳しくは下の手順です。</figcaption>
+        </figure>
         <div class="steps">
           <div class="step">
             <b>話しかける</b>
