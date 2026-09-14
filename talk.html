@@ -280,6 +280,9 @@
         <label title="配信の場（スペース・ニコ生など）の話を貯めて、間が来たら話題に一言だけ言います"><input type="checkbox" id="room" /> 場を聞く</label>
         <!-- ★配信用の窓（2026-09-14）。キャラと吹き出しだけを緑背景で映す。OBS でウィンドウキャプチャ＋クロマキー -->
         <button type="button" id="overlayOpen" class="mini" title="キャラと吹き出しだけを緑背景で映す窓を開きます。OBS で「ウィンドウキャプチャ」→フィルタ「クロマキー（緑）」で配信画面に重ねられます">配信用の窓（クロマキー）</button>
+        <!-- ★OBS 不要の方式（2026-09-14）: ブラウザ標準の「常に最前面の小窓」（Document Picture-in-Picture）。
+             画面共有で配信する方式（ニコ生ブラウザ配信の画面共有・Discord・Zoom・X スペース等）なら小窓ごと映る。 -->
+        <button type="button" id="pipOpen" class="mini" title="3人を「常に最前面の小窓」に浮かせます（OBS 不要）。画面共有で配信するなら、その小窓ごと映ります">浮かせる（OBS不要）</button>
       </div>
       <p class="hint">
         ★名前を呼ぶとその子が答えます（りんく / こん太 / たぬ姉）。呼ばなければ誰かが答えます。
@@ -329,18 +332,23 @@
       const postStage = (m) => { try { stageBus.postMessage(m); } catch { /* 窓が無くても本体は止めない */ } };
       let overlayReady = false;
       stageBus.onmessage = (e) => { if (e.data?.type === 'overlay-ready') { overlayReady = true; log('（配信用の窓）', '繋がりました。本体の会話がそのまま映ります'); } };
+      /** 同じページ内で舞台を写す先（浮かせた小窓の舞台など）。閉じたら外す */
+      const stageMirrors = new Set();
       function mirrorStage(l) {
+        const each = (fn) => { for (const m of stageMirrors) { try { fn(m); } catch { /* 小窓が閉じた直後など */ } } };
         return {
           ...l,
           onStreamerAddressed(input) {
             const r = l.onStreamerAddressed(input);
-            postStage({ type: 'addressed', input: { ...input, charaId: input?.charaId ?? r } });
+            const payload = { ...input, charaId: input?.charaId ?? r };
+            postStage({ type: 'addressed', input: payload });
+            each((m) => m.onStreamerAddressed(payload));
             return r;
           },
-          beginThinking(input = {}) { const r = l.beginThinking(input); postStage({ type: 'thinking', input }); return r; },
-          endThinking(input = {}) { const r = l.endThinking(input); postStage({ type: 'endThinking', input }); return r; },
-          closeChara(charaId) { l.closeChara(charaId); postStage({ type: 'close', charaId }); },
-          onCommentSpokenEnd() { l.onCommentSpokenEnd(); postStage({ type: 'spokenEnd' }); }
+          beginThinking(input = {}) { const r = l.beginThinking(input); postStage({ type: 'thinking', input }); each((m) => m.beginThinking(input)); return r; },
+          endThinking(input = {}) { const r = l.endThinking(input); postStage({ type: 'endThinking', input }); each((m) => m.endThinking(input)); return r; },
+          closeChara(charaId) { l.closeChara(charaId); postStage({ type: 'close', charaId }); each((m) => m.closeChara(charaId)); },
+          onCommentSpokenEnd() { l.onCommentSpokenEnd(); postStage({ type: 'spokenEnd' }); each((m) => m.onCommentSpokenEnd()); }
         };
       }
 
@@ -351,8 +359,13 @@
         resolveUrl: (p) => p,
         getHeatLevel: () => 0.35,
         chatter: false,
-        // ★自発発話の台詞も配信用の窓へ（同じ言葉を映す）
-        onChatter: (c) => postStage({ type: 'chatter', ...c })
+        // ★自発発話の台詞も配信用の窓・浮かせた小窓へ（同じ言葉を映す）
+        onChatter: (c) => {
+          postStage({ type: 'chatter', ...c });
+          for (const m of stageMirrors) {
+            try { m.onStreamerAddressed({ prompt: '', answer: c.text, durationMs: c.durationMs, charaId: c.charaId }); } catch { /* no-op */ }
+          }
+        }
       }));
 
       /** 直前に喋った子（同じ子が続けて答えないように） */
@@ -1373,6 +1386,61 @@
       $('chatter').addEventListener('change', (e) => live.setChatter(e.target.checked));
       /* ★配信用の窓を開く。OBS 側は「ウィンドウキャプチャ」でこの窓を選び、フィルタ「クロマキー」（緑）。
          ★通常の窓として開く（ポップアップ扱いだと OBS のウィンドウ一覧に出にくいことがある）。 */
+      /* ★OBS 不要で「浮かせる」（2026-09-14・ユーザー要望「OBS 依存なしでもできる方法があるはず」）
+           ブラウザ標準の Document Picture-in-Picture（常に最前面の小窓・Chrome 116+）に、同じ部品でもう1つ舞台を作り、
+           本体の合図をそのまま流す。画面共有で配信する方式なら、小窓ごと配信に映る。
+           ★小窓は透明にできない（ブラウザの制約）。背景は本体と同じ明るい地にする。
+           ★ユーザーの操作（クリック）が無いと開けない仕様なので、ボタンからだけ開く。 */
+      let pipLive = null;
+      $('pipOpen').addEventListener('click', async () => {
+        if (!('documentPictureInPicture' in window)) {
+          log('（浮かせる）', 'このブラウザは「常に最前面の小窓」に対応していません（Chrome 116 以降）。代わりに「配信用の窓」を開いて、Windows なら PowerToys の Win+Ctrl+T で最前面に固定してください');
+          return;
+        }
+        if (pipLive) { log('（浮かせる）', 'もう浮いています（小窓を閉じると元に戻ります）'); return; }
+        let pip;
+        try {
+          pip = await window.documentPictureInPicture.requestWindow({ width: 720, height: 300 });
+        } catch (e) {
+          log('（浮かせる）', `開けませんでした（${String(e?.message || e)}）`);
+          return;
+        }
+        const d = pip.document;
+        d.title = 'characterlive — 浮かせる';
+        const st = d.createElement('style');
+        st.textContent = `
+          html,body{margin:0;height:100%;background:#fffaf4;overflow:hidden}
+          #stage{--chara:clamp(90px,60vh,220px);--bubble-w:clamp(200px,44vw,420px);--bubble-fs:clamp(12px,4.5vh,18px);
+            position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding:0 2vw 1vh}
+          #stage .nlcl-stage{gap:clamp(8px,3vw,40px)}
+          #stage .nlcl-chara{width:var(--chara);height:var(--chara)}
+          #stage .nlcl-chara__bubble{max-width:var(--bubble-w);font-size:var(--bubble-fs);padding:calc(var(--bubble-fs)*.55) calc(var(--bubble-fs)*.9);border-radius:calc(var(--bubble-fs)*1.1);bottom:calc(100% + 8px)}
+          #stage .nlcl-chara__name{font-size:calc(var(--bubble-fs)*.8)}
+          #stage .nlcl-chara:first-child .nlcl-chara__bubble,#stage .nlcl-chara:last-child .nlcl-chara__bubble{animation-name:pip-pop;transform:none}
+          #stage .nlcl-chara:first-child .nlcl-chara__bubble{left:0}
+          #stage .nlcl-chara:first-child .nlcl-chara__bubble::after{left:calc(var(--chara)/2)}
+          #stage .nlcl-chara:last-child .nlcl-chara__bubble{left:auto;right:0}
+          #stage .nlcl-chara:last-child .nlcl-chara__bubble::after{left:auto;right:calc(var(--chara)/2 - 6px)}
+          @keyframes pip-pop{from{opacity:0;transform:translateY(4px) scale(.94)}to{opacity:1;transform:none}}
+        `;
+        d.head.appendChild(st);
+        const mount = d.createElement('main');
+        mount.id = 'stage';
+        d.body.appendChild(mount);
+        // ★画像は絶対URLで（小窓の document は相対パスの基準を持たない）
+        pipLive = startCharaLive({
+          doc: d, mount, resolveUrl: (p) => new URL(p, location.href).href, getHeatLevel: () => 0.35, chatter: false
+        });
+        stageMirrors.add(pipLive);
+        pip.addEventListener('pagehide', () => {
+          stageMirrors.delete(pipLive);
+          try { pipLive.destroy(); } catch { /* no-op */ }
+          pipLive = null;
+          log('（浮かせる）', '小窓を閉じました');
+        });
+        log('（浮かせる）', '3人を最前面の小窓に浮かせました。画面共有で配信するなら、この小窓を映したい場所に置いてください（OBS 不要）');
+      });
+
       $('overlayOpen').addEventListener('click', () => {
         const w = window.open('overlay.html', 'characterlive-overlay', 'width=960,height=540,resizable=yes');
         if (!w) { log('（配信用の窓）', '開けませんでした（ポップアップがブロックされています）'); return; }
