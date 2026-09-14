@@ -286,7 +286,7 @@
 
     <script type="module">
       import { startCharaLive } from './src/index.js';
-      import { think, pickResponder, probeAi, startAiDownload, setBrain, getBrain, BRAINS } from './src/lib/charaBrain.js';
+      import { think, pickResponder, probeAi, startAiDownload, setBrain, getBrain, BRAINS, warmUpBrain } from './src/lib/charaBrain.js';
       import { PERSONAS, PERSONA_IDS } from './src/lib/charaPersona.v1.js';
       import { isVoicevoxAlive, synthesize, playWav } from './src/lib/charaVoice.js';
       import {
@@ -564,6 +564,21 @@
         try { saved = localStorage.getItem(BRAIN_KEY); } catch { /* no-op */ }
         $('brain').value = setBrain(fromUrl || saved || 'nano');
       }
+      /** 3人ぶんのセッションを温める（内蔵AIのときだけ実際に何かする） */
+      let warming = false;
+      async function warmUpAll() {
+        if (warming || getBrain() !== 'nano') return;
+        warming = true;
+        try {
+          const r = await warmUpBrain($('mode').value);
+          if (r.ok) log('（AI）', `3人の頭を温めました（${r.made}人・${r.ms}ms）。最初の返事から速く返ります`);
+        } finally {
+          warming = false;
+        }
+      }
+      // ★性格を変えると system が変わり、セッションが作り直しになる → 先に温め直す
+      $('mode').addEventListener('change', () => { warmUpAll(); });
+
       function aiStatusHtml(ai) {
         return `<span class="dot ${ai.ok ? 'ok' : 'ng'}"></span>AI: ${BRAINS[getBrain()].label} … ${ai.ok ? '使える' : (ai.reason || '使えない')}`;
       }
@@ -593,6 +608,10 @@
         $('status').innerHTML = aiStatusHtml(ai) + voiceStatusHtml(vv);
         if (!vv) $('voice').checked = false;
         if (vv) buildVoicePicker();
+        /* ★3人の頭を先に温める（2026-09-14）
+           最初の返事だけ 10〜15 秒かかる（セッション作成が重い・実測）。開いた直後に作っておく。
+           ★内蔵AIのときだけ。ログに所要時間を出す（重さを隠さない）。 */
+        if (ai.ok) warmUpAll();
         /* ★相槌を作り置きする（2026-09-06）
            ★返事を作っている1.9秒（推論1300+合成600）が無音になり、
              そこで「会話が止まった」と感じていた。人間の会話に無音の1.9秒はない。
@@ -623,6 +642,7 @@
               btn.remove();
               const again = await probeAi();
               $('status').innerHTML = aiStatusHtml(again) + voiceStatusHtml(true);
+              if (again.ok) warmUpAll();   // ★準備できたら、その場で3人の頭を温める
             } else {
               btn.disabled = false;
               btn.textContent = 'AIを準備する';

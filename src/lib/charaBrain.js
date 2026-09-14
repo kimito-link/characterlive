@@ -538,6 +538,30 @@ async function acquireSession(LM, charaId, system) {
   return session;
 }
 
+/**
+ * ★3人ぶんのセッションを先に作っておく（2026-09-14）。
+ *   実測: 最初の返事だけ 10〜15 秒かかる（推論ではなくセッション作成が重い。2回目以降は 1.2〜1.5 秒）。
+ *   ページを開いた直後に作っておけば、最初の一言から 1.5 秒で返る。
+ *   ★内蔵AIのときだけ。性格モードを変えると system が変わるので、そのとき作り直す。
+ * @param {string} [mode]
+ * @returns {Promise<{ ok:boolean, made:number, ms:number, reason?:string }>}
+ */
+export async function warmUpBrain(mode = DEFAULT_MODE) {
+  if (brain !== 'nano') return { ok: false, made: 0, ms: 0, reason: '内蔵AIのときだけ' };
+  const probe = await probeAi();
+  if (!probe.ok) return { ok: false, made: 0, ms: 0, reason: probe.reason };
+  const LM = /** @type {any} */ (globalThis).LanguageModel;
+  const t0 = performance.now();
+  let made = 0;
+  for (const id of PERSONA_IDS) {
+    try {
+      await acquireSession(LM, id, buildSystemPrompt(id, { mode }));
+      made += 1;
+    } catch { /* 1人ぶん失敗しても他は温める */ }
+  }
+  return { ok: made > 0, made, ms: Math.round(performance.now() - t0) };
+}
+
 /** 壊れたセッションを捨てる。 */
 export function releaseSession(charaId) {
   const held = SESSIONS.get(charaId);
