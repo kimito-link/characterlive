@@ -796,7 +796,8 @@
         lastSpeaker = who;
         history.push({ who: persona.displayName, text: res.text });
         // ★AIが使えず固定台詞を返した場合は隠さず示す（実測を偽らない）
-        log(persona.displayName, res.text + (res.fallback ? '（AI未準備・決め打ち）' : ''), res.ms);
+        //   ★オウム返しを言い直させた場合も印を出す（頻度を見るため）
+        log(persona.displayName, res.text + (res.fallback ? '（AI未準備・決め打ち）' : '') + (res.rephrased ? '（写しだったので言い直し）' : ''), res.ms);
 
         // ★口パクは「音が鳴った瞬間」に合わせる。文字表示に合わせると声より先に口が動く。
         if ($('voice').checked && voiceOk) {

@@ -24,7 +24,7 @@ import {
   CLOUD_MODEL, CLOUD_SYSTEM_EXTRA, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
 } from './charaCloudRequest.js';
 import { buildUserBlock, roomAsk } from './charaDigest.js';
-import { looksBrokenReply, isRepeatOf } from './charaReplyGuard.js';
+import { looksBrokenReply, isRepeatOf, isEchoOf } from './charaReplyGuard.js';
 import { roleRulesV2 } from './charaRules.v2.js';
 import { memoryDirective } from './charaMemory.js';
 
@@ -259,11 +259,16 @@ export async function think(input) {
   // ★「〜ですね」で受け流させない（ユーザー要望:「superficial な返答じゃなく」）
   //   ★オウム返しを名指しで禁じる。Grokのプロンプトが決まり文句を名指しで
   //     禁止しているのと同じ手法（曖昧に「深く返せ」と言っても効かない）。
+  /* ★質問には答えを言わせる（2026-09-14・実害）
+       ユーザー報告:「質問が返ってこない」→ りんく が「どんなところがおもしろい、最近の配信は？」と
+       質問をそのまま返した。小型モデルは「繰り返さない」だけでは質問文をなぞる。 */
+  const askedQuestion = /[?？]|どう|どんな|なに|何|なぜ|いつ|誰|どこ/.test(String(input.text || ''));
   const ask = [
     situationLine,
     room
       ? roomAsk(persona.displayName, { pickup: input.room.pickup })
-      : `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`
+      : `${persona.displayName}として1〜3文で返して。相手の言葉を繰り返すだけの返事はしない。`,
+    (!room && askedQuestion) ? '質問には自分の答えを言う。質問文をなぞらない。' : ''
   ].filter(Boolean).join('');
   // ★場モードでは「相手:「…」」行を作らない（断片を主役にしない）
   const user = buildUserBlock({ text: input.text, hist, ask, room });
@@ -303,6 +308,33 @@ export async function think(input) {
     const oneSentence = Boolean(input.relay) || Boolean(address);
     let text = enforcePersona(tidy(raw, oneSentence ? 1 : MAX_SENTENCES), charaId);
 
+    /* ★オウム返しを出力側で止める（2026-09-14・実害）
+       ユーザー報告:「りんくがオウム返しする」「質問が返ってこない」
+         「どんなところがおもしろい 最近の配信は？」→「どんなところがおもしろい、最近の配信は？」
+       ★「繰り返さない」と指示しても小型モデルは守らない（採用2の構造側）。
+       → 返事の2文字の並びのほとんどが相手の言葉に含まれていたら「写し」とみなし、
+         1回だけ言い直させる。それでも写しなら決め打ちに落とす（写しを声に出すよりまし）。
+       ★判定は比率（isEchoOf）。「N字一致」の絶対値は使わない（Grokの正解を落とすため）。 */
+    let rephrased = false;
+    const PARROT = { ratio: 0.6, minChars: 8 };
+    if (!room && isEchoOf(text, input.text, PARROT)) {
+      const extra = '\n※いまの返事は相手の言葉の写しだった。相手の言葉を使わず、自分の考えを1〜2文で言う。';
+      let raw2 = null;
+      try {
+        if (cloud) {
+          const r2 = await askCloud({ system: `${system}\n${CLOUD_SYSTEM_EXTRA}\n${roleRulesV2(charaId)}`, user: user + extra });
+          raw2 = r2.ok ? r2.text : null;
+        } else {
+          raw2 = await session.prompt(user + extra);
+        }
+      } catch { raw2 = null; }
+      const text2 = looksBrokenReply(raw2, user).ok
+        ? enforcePersona(tidy(raw2, oneSentence ? 1 : MAX_SENTENCES), charaId)
+        : '';
+      text = (text2 && !isEchoOf(text2, input.text, PARROT)) ? text2 : fallbackLine(charaId, input.text);
+      rephrased = true;
+    }
+
     /* ★刺さりすぎを止める（2026-09-06・Grokの助言）
        Grok:「反応したくなるAIの危険は刺さりすぎ」
        ★人格否定・決めつけ・命令は逃げ道を塞ぐ。ここだけは通さない。
@@ -317,7 +349,12 @@ export async function think(input) {
     const repeated = isRepeatOf(LAST_REPLY.get(charaId), text);
     if (repeated) text = fallbackLine(charaId, input.text);
     LAST_REPLY.set(charaId, text);
-    return { ok: true, text, ms: Math.round(performance.now() - t0), brain, servedBy, userChars, fallback: repeated || undefined, reason: repeated ? '直前と同じ返事だったので言い換えた' : undefined };
+    return {
+      ok: true, text, ms: Math.round(performance.now() - t0), brain, servedBy, userChars,
+      fallback: repeated || undefined,
+      rephrased: rephrased || undefined,
+      reason: repeated ? '直前と同じ返事だったので言い換えた' : (rephrased ? '相手の言葉の写しだったので言い直した' : undefined)
+    };
   } catch (e) {
     // ★ここでも黙らない（上と同じ理由）
     releaseSession(charaId);   // ★壊れたセッションは捨てる（使い回すと二度と成功しない）
@@ -374,6 +411,16 @@ export function enforcePersona(text, charaId) {
   let t = String(text || '');
   const p = PERSONAS[charaId];
   if (!p) return t;
+
+  /* ★自分の名前を一人称に直す（2026-09-14・実害）
+       りんく が「りんくもいつも楽しんでるのだ！」と自分を名前で呼んだ。
+       ★「名前＋助詞」の形だけを一人称に置き換える（呼びかけの除去より先にやる。
+         後にすると「、りんく、」の除去に巻き込まれて文が欠ける）。
+       ★たぬ姉は一人称が固定されていないので触らない。 */
+  const FIRST_PERSON = { rinku: 'ボク', konta: 'ボク' };
+  if (FIRST_PERSON[charaId]) {
+    t = t.replace(new RegExp(`${p.displayName}(も|は|が|の|って|に|だって)`, 'g'), `${FIRST_PERSON[charaId]}$1`);
+  }
 
   // ★人名での呼びかけを落とす（「りんく、〜」「こん太！」など先頭・末尾の呼びかけ）
   const names = PERSONA_IDS.map((id) => PERSONAS[id].displayName);

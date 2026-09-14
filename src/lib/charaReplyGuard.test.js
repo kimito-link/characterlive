@@ -13,6 +13,12 @@ describe('isEchoOf — キャラの台詞の後半だけを拾った反響を見
     expect(isEchoOf('大丈夫って言われても不安なんだよね', spoken)).toBe(false);
     expect(isEchoOf('今日はこれからゲームするよ', spoken)).toBe(false);
   });
+  it('★逆向きにも使える: 返事が相手の言葉の写し（オウム返し）かを見る（2026-09-14 実害）', () => {
+    expect(isEchoOf('どんなところがおもしろい、最近の配信は？', 'どんなところがおもしろい 最近の配信は？', { ratio: 0.6, minChars: 8 })).toBe(true);
+    expect(isEchoOf('小幡さんって配信 面白いですよね！りんくもいつも楽しんでるのだ！', '小幡さんって配信 面白いですよね', { ratio: 0.6, minChars: 8 })).toBe(false); // 半分は自分の言葉
+    expect(isEchoOf('じゃないですか、か！さすが、キミの言葉は鋭いな。', 'じゃないですか', { ratio: 0.6, minChars: 8 })).toBe(false);   // 短い断片の写しは別の段（narrow）で扱う
+    expect(isEchoOf('テンポと間の取り方だと思うのだ。無言が無い', 'どんなところがおもしろい 最近の配信は？', { ratio: 0.6, minChars: 8 })).toBe(false);
+  });
   it('短い言葉は判定しない（「うん」「大丈夫」が台詞に含まれていても捨てない）', () => {
     expect(isEchoOf('大丈夫', spoken)).toBe(false);
     expect(isEchoOf('うん', spoken)).toBe(false);
