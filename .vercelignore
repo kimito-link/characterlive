@@ -1,0 +1,9 @@
+# 配信しないもの。outputDirectory が "." のため、ここに書かないとリポジトリの中身がそのまま公開される
+# (2026-10-06 に本番で DEPLOY.md / ROADMAP.md / scripts/*.mjs などが 200 で取れると確認して追加)。
+# ★サイトの表示に要るものは書かない: index.html など各ページ・assets/・src/(テスト以外)・api/・favicon 類。
+#   書いたら src/vercelignore.test.js が「ページや api が参照しているのに外した」ことを検出する。
+_docs/
+scripts/
+*.md
+vitest.config.js
+src/**/*.test.js
