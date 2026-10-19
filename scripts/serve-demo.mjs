@@ -35,10 +35,18 @@ const TYPES = {
  *   ローカルでも同じ URL・同じ handler に回す（2つ作らない）。
  *   ★遅延 import: SDK が無い／壊れていても静的配信は止めない。
  */
+/* ★ローカルだけはプロセス内のカウンタで数える（2026-10-19）。
+     本番（Vercel）は KV が無いと POST を常に拒否する（fail-closed）が、手元で試すたびに KV を
+     用意させないため。上限（予算・IP回数）は本番と同じ式で効く。KV の env があればそちらを使う。 */
+let localHandler = null;
 async function serveApiChat(req, res) {
   try {
-    const mod = await import('../api/chat.js');
-    await mod.default(req, res);
+    if (!localHandler) {
+      const mod = await import('../api/chat.js');
+      const guard = await import('../src/lib/chatCostGuard.js');
+      localHandler = mod.createHandler({ store: guard.createUpstashStore() || guard.createMemoryStore() });
+    }
+    await localHandler(req, res);
   } catch (e) {
     res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ ok: false, reason: `api/chat.js を読めません: ${String(e?.message || e)}` }));

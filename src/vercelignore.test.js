@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+// ★fileURLToPath: .pathname のままだと日本語を含むパスが %E3... のまま残り、ファイルが読めない
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const read = (f) => readFileSync(join(ROOT, f), 'utf8');
 
 /** .vercelignore の行(コメント・空行を除く) */

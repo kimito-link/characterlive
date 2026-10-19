@@ -7,3 +7,4 @@ scripts/
 *.md
 vitest.config.js
 src/**/*.test.js
+.cost-guard.json

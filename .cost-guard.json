@@ -1,0 +1,6 @@
+{
+  "guarded": {
+    "api/chat.js": "src/lib/chatCostGuard.js reserveChatBudget で呼ぶ前に予約（IP回数→日次予算・fail-closed・KV 未設定なら POST 常時拒否・PAID_CALLS_DISABLED でキルスイッチ）"
+  },
+  "exempt": {}
+}
