@@ -21,11 +21,10 @@ import { toneDirective } from './charaVoiceTone.js';
 import { readAddress, narrowContext, addressDirective, mentionByOtherDirective } from './charaAddress.js';
 import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js';
 import {
-  CLOUD_MODEL, CLOUD_SYSTEM_EXTRA, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
+  CLOUD_MODEL, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
 } from './charaCloudRequest.js';
 import { buildUserBlock, roomAsk } from './charaDigest.js';
 import { looksBrokenReply, isRepeatOf, isEchoOf, leaksScaffold } from './charaReplyGuard.js';
-import { roleRulesV2 } from './charaRules.v2.js';
 import { memoryDirective } from './charaMemory.js';
 
 /** @typedef {'rinku'|'konta'|'tanunee'} CharaId */
@@ -68,16 +67,18 @@ async function probeCloud() {
     const r = await fetch(CLOUD_ENDPOINT, { method: 'GET', cache: 'no-store' });
     if (!r.ok) return { ok: false, state: 'unreachable', reason: `/api/chat が ${r.status} を返しました` };
     const j = await r.json();
-    if (j.hasKey) return { ok: true, state: 'available' };
-    return { ok: false, state: 'no-key', reason: 'サーバに ANTHROPIC_API_KEY がありません' };
+    if (j.ready) return { ok: true, state: 'available' };
+    if (!j.hasKey) return { ok: false, state: 'no-key', reason: 'サーバに ANTHROPIC_API_KEY がありません' };
+    // ★鍵はあるが会話枠のカウンタが無い／休止中 → 呼べない（サーバ側でも POST は拒否される）
+    return { ok: false, state: 'closed', reason: j.disabled ? 'クラウドの会話は休止中です' : 'クラウドの会話枠の準備ができていません' };
   } catch (e) {
     return { ok: false, state: 'unreachable', reason: `/api/chat に届きません（${String(e?.message || e)}）` };
   }
 }
 
 /**
- * クラウド頭脳に1回聞く。
- * @param {{ system:string, user:string }} input
+ * クラウド頭脳に1回聞く。★system は送らない（サーバがキャラ ID から組み立てる）。
+ * @param {{ charaId:string, mode?:string, user:string }} input
  * @returns {Promise<{ ok:boolean, text?:string, reason?:string, servedBy?:string }>}
  */
 async function askCloud(input) {
@@ -293,7 +294,10 @@ export async function think(input) {
          人格と同じく固定文なので、毎回同じ system になる（キャッシュにも優しい）。 */
       /* ★役ごとの振る舞い規則 v2（2026-09-14）はクラウド頭脳だけに足す。
          内蔵AIは system 上限（実測320〜350字）に入らない。v1 の人格文は触らない。 */
-      const r = await askCloud({ system: `${system}\n${CLOUD_SYSTEM_EXTRA}\n${roleRulesV2(charaId)}`, user });
+      /* ★system はサーバ（api/chat.js serverSystemFor）が組み立てる（2026-10-19・原価の守り）。
+         ここから任意の system を送れると /api/chat が汎用の Claude 代理になる。
+         送るのはキャラ ID・モード・本文だけ。中身は上の説明と同じ（人格＋CLOUD_SYSTEM_EXTRA＋規則v2）。 */
+      const r = await askCloud({ charaId, mode: input.mode || DEFAULT_MODE, user });
       if (!r.ok) throw new Error(r.reason || 'クラウド頭脳が答えませんでした');
       raw = r.text;
       servedBy = r.servedBy;
@@ -337,7 +341,7 @@ export async function think(input) {
       let raw2 = null;
       try {
         if (cloud) {
-          const r2 = await askCloud({ system: `${system}\n${CLOUD_SYSTEM_EXTRA}\n${roleRulesV2(charaId)}`, user: user + extra });
+          const r2 = await askCloud({ charaId, mode: input.mode || DEFAULT_MODE, user: user + extra });
           raw2 = r2.ok ? r2.text : null;
         } else {
           raw2 = await session.prompt(user + extra);

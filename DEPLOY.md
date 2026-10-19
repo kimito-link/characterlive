@@ -16,6 +16,7 @@
 | `buildCommand: null` | ビルド不要。素のHTML/JSをそのまま配る |
 | `installCommand` は指定しない（既定の `npm install`） | ★2026-09-07 に `installCommand: null` を外した。`api/chat.js`（Claude Fable 5.1 の呼び出し口）が `@anthropic-ai/sdk` を使うため、Vercel に依存を入れさせる必要がある。静的部分には影響しない |
 | `api/` | Vercel が自動で Serverless Function にする。鍵は Vercel の環境変数 `ANTHROPIC_API_KEY`（ファイルに書かない）。未設定なら `/api/chat` は「鍵がありません」を返し、画面は決め打ち台詞に落ちる |
+| `/api/chat` の原価の守り（2026-10-19） | ★**鍵を入れる前に KV（カウンタ）を用意する**。`KV_REST_API_URL`/`KV_REST_API_TOKEN`（Vercel KV・Upstash 連携）か `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` が無いと、**鍵があっても POST は常に拒否**（fail-closed）。上限は `CHAT_DAILY_BUDGET_MILLI`（全体の日次予算・ミリドル）と `CHAT_IP_DAILY_CALLS`（IP ごとの1日の回数）。数値として読めない値を入れると止まる。`PAID_CALLS_DISABLED=1` で即停止（デプロイ不要）。数字の根拠は `_docs/COST-MODEL.md` |
 | `outputDirectory: "."` | リポ直下がそのまま公開ディレクトリ |
 | `cleanUrls: true` | `/demo` で `/demo.html` が開ける |
 | `/src/(.*).js` に `Content-Type: text/javascript` | ★MIMEが違うとブラウザがESモジュールの実行を拒否し、**画面が真っ白になる**（LPはsrc/を直接importしている） |
