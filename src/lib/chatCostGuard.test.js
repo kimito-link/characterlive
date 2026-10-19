@@ -8,6 +8,7 @@ const base = { ip: '203.0.113.7', systemChars: 800, userChars: 1000 };
 
 describe('見積り（見積りと上限は同じ定数から導く）', () => {
   it('既定の日次予算は1回の最大見積りより大きい（「必ず拒否」にならない）', () => {
+    expect(DEFAULT_DAILY_BUDGET_MILLI).toBe(500); // 2026-10-20 の裁定（約75円/日）
     expect(DEFAULT_DAILY_BUDGET_MILLI).toBeGreaterThan(MAX_CALL_MILLI);
     expect(MAX_CALL_MILLI).toBe(estimateCallMilli(1500, USER_MAX_CHARS));
   });

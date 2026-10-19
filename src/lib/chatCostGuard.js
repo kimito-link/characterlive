@@ -64,11 +64,12 @@ export const MAX_CALL_MILLI = estimateCallMilli(SYSTEM_MAX_CHARS_ESTIMATE, USER_
 
 /**
  * 匿名の全体予算の既定（ミリドル/日）。
- * ★最大見積りの倍数で決める（上限 < 1回の見積り で「必ず拒否」にならないように）。
- *   最大見積り 1回 ≈ $0.26 → 12回分 ≈ $3.1/日（約470円/日）。数字は提案（docs/COST-MODEL.md）。
+ * ★500 ミリドル＝$0.50/日（約75円/日）。2026-10-20 の価格設計の裁定で小さくした
+ *   （Fable は1回 17〜36円で、無料枠を付けると損益分岐の課金率が約14%になるため。_docs/COST-MODEL.md）。
+ * ★1回の最大見積り（MAX_CALL_MILLI ≈ 242）より大きくしておく。小さいと「必ず拒否」になる
+ *   （テストで確かめている）。典型の1回（約110）なら1日4回ほど。
  */
-export const DEFAULT_DAILY_CALLS_AT_MAX = 12;
-export const DEFAULT_DAILY_BUDGET_MILLI = MAX_CALL_MILLI * DEFAULT_DAILY_CALLS_AT_MAX;
+export const DEFAULT_DAILY_BUDGET_MILLI = 500;
 
 /** IP ごとの1日の回数上限の既定。 */
 export const DEFAULT_IP_DAILY_CALLS = 20;
