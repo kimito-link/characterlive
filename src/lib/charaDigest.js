@@ -11,7 +11,7 @@
  * ★断片を主役にしない
  *   1対1の経路は「相手:「じゃないですか」」のように断片を主役にして渡していた。
  *   それが「じゃないですか、か！」のオウム返しの正体。
- *   場では「相手:「…」」行を**作らない**。話題に対して一言、と頼む。
+ *   場では「相手:「…」」行を**作らない**。合間の掛け声か一言ツッコミを1つ頼む。
  *
  * ★isEcho（出た返事がオウム返しか）は次の段。ここには入れない。
  *   入れるときは絶対値判定（「8字以上の一致で落とす」）を使わない。
@@ -36,19 +36,48 @@ export function buildRoomDigest(input) {
 }
 
 /**
- * 場に向けた頼み方。★「誰か1人に返事」ではなく「話題に一言」。
+ * 場の一言の役。★表示名で引く。
+ *   system（人格 v1）は触らない。変えると Nano のセッションが作り直され 11 秒に戻る。
+ *   クラウドの役の温度は charaRules.v2。ここは「いまの拍で何を言うか」だけ。
+ * @type {Readonly<Record<string, string>>}
+ */
+const ROOM_BEAT_CUE = Object.freeze({
+  りんく: 'したことを1つ認め、事実は曲げない。',
+  こん太: '掛け声だけ。解決しない。',
+  たぬ姉: '結論を先に。相手は責めない。'
+});
+
+/**
+ * 場に向けた頼み方。
+ * ★司会の横のマスコット（ラルフ）: 切れ目で掛け声か一言ツッコミを1つ。主役は奪わない。
+ *   黙っている間の処理は拍と mute／blackout 側。ここは「喋ると決めたあと」の文面だけ。
+ *   ★短く書く。内蔵AIの入力上限（実測320〜350字）に窓と履歴も入る。
  * @param {string} displayName
  * @param {{ pickup?: string }} [opt] 拾ってほしい一語（あれば）
  * @returns {string}
  */
 export function roomAsk(displayName, opt = {}) {
+  const name = String(displayName || '').trim();
   const pickup = String(opt?.pickup || '').trim();
+  const cue = ROOM_BEAT_CUE[name] || '';
   return [
-    `${displayName}として、いまの話題に一言だけ。`,
-    '誰か1人に返事するのではなく、話題に対して言う。',
-    pickup ? `「${pickup}」に触れる。` : '',
-    '聞こえた言葉をそのまま繰り返さない。1〜2文。'
+    `${name}として、合間の掛け声か一言ツッコミ。主役は奪わない。`,
+    '1文、20〜30字。いまのことだけ。説明・要約・実況はしない。なぞらない。',
+    '提案しない。褒めすぎない。',
+    cue,
+    pickup ? `「${pickup}」に触れる。` : ''
   ].filter(Boolean).join('');
+}
+
+/**
+ * 場の返事を1文に切るか。
+ * ★指示だけでは小型モデルが2〜3文の実況にする。場のときだけ true。
+ *   1対1（room 無し）は false。文数は従来どおり think 側のリレー／名指し／短い反応に任せる。
+ * @param {unknown} hasRoom
+ * @returns {boolean}
+ */
+export function roomForcesOneSentence(hasRoom) {
+  return Boolean(hasRoom);
 }
 
 /**

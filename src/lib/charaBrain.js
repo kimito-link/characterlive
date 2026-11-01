@@ -23,7 +23,7 @@ import { findSorePoint, reactDirective, checkNotTooHarsh } from './charaReact.js
 import {
   CLOUD_MODEL, CLOUD_HISTORY_TURNS, CLOUD_HISTORY_CHARS
 } from './charaCloudRequest.js';
-import { buildUserBlock, roomAsk } from './charaDigest.js';
+import { buildUserBlock, roomAsk, roomForcesOneSentence } from './charaDigest.js';
 import { looksBrokenReply, isRepeatOf, isEchoOf, leaksScaffold } from './charaReplyGuard.js';
 import { memoryDirective } from './charaMemory.js';
 
@@ -268,6 +268,10 @@ export async function think(input) {
        「ええ？」に りんく が2文の説明を返した。相手は反応しただけで、説明を求めていない。
        ★相槌そのものは前段（charaTurnEnd／耳）で落ちるが、4字以内の反応はここまで来る。 */
   const shortReact = !room && String(input.text || '').trim().length <= 4;
+  /* ★場は1文（2026-11-01）
+     司会の横のマスコット。指示だけだと小型モデルが説明を足す。
+     ★1対1は room が無いので roomForcesOneSentence は false。従来の切り方のまま。 */
+  const oneSentence = roomForcesOneSentence(room) || Boolean(input.relay) || Boolean(address) || shortReact;
   const ask = [
     situationLine,
     room
@@ -319,7 +323,7 @@ export async function think(input) {
     // ★リレー中は1人1文に固定する（指示）。3人ぶん続くので長いと聞き疲れる。
     // ★リレー中と名指し時は1文に固定（Grok:「役割を変えるだけで、長さは揃える」）
     // ★短い反応への返事も1文に切る（指示だけでは小型モデルが守らない）
-    const oneSentence = Boolean(input.relay) || Boolean(address) || shortReact;
+    // ★場も1文（oneSentence）。1対1の通常の返しは MAX_SENTENCES のまま。
     let text = enforcePersona(tidy(raw, oneSentence ? 1 : MAX_SENTENCES), charaId);
 
     /* ★オウム返しを出力側で止める（2026-09-14・実害）
