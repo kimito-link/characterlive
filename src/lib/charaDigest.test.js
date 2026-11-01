@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildRoomDigest, roomAsk, buildUserBlock, DIGEST_CHARS_NANO, DIGEST_CHARS_CLOUD
+  buildRoomDigest, roomAsk, roomForcesOneSentence, buildUserBlock,
+  DIGEST_CHARS_NANO, DIGEST_CHARS_CLOUD
 } from './charaDigest.js';
 
 describe('buildRoomDigest — 窓を頭脳ごとの長さに切る', () => {
@@ -21,16 +22,46 @@ describe('buildRoomDigest — 窓を頭脳ごとの長さに切る', () => {
   });
 });
 
-describe('roomAsk — 話題に一言、と頼む', () => {
-  it('誰か1人への返事ではなく話題に言う、繰り返さない、が入る', () => {
+describe('roomAsk — 場の合間に一言、と頼む', () => {
+  it('1文・いまのこと・実況しない・なぞらない、が入る', () => {
     const a = roomAsk('りんく');
     expect(a).toContain('りんくとして');
-    expect(a).toContain('話題に対して');
-    expect(a).toContain('繰り返さない');
+    expect(a).toContain('合間の掛け声か一言ツッコミ');
+    expect(a).toContain('主役は奪わない');
+    expect(a).toContain('1文、20〜30字');
+    expect(a).toContain('いまのことだけ');
+    expect(a).toContain('説明・要約・実況はしない');
+    expect(a).toContain('なぞらない');
+    expect(a).toContain('提案しない');
+    expect(a).toContain('褒めすぎない');
+    expect(a).not.toContain('1〜2文');
   });
+
+  it('役ごとに一言の型が違う（温かい受け／掛け声／結論のツッコミ）', () => {
+    expect(roomAsk('りんく')).toContain('したことを1つ認め、事実は曲げない');
+    expect(roomAsk('こん太')).toContain('掛け声だけ。解決しない');
+    expect(roomAsk('たぬ姉')).toContain('結論を先に。相手は責めない');
+    expect(roomAsk('だれか')).not.toContain('結論を先に');
+  });
+
+  it('内蔵AIの入力上限を圧迫しない長さに収める', () => {
+    // 窓140＋履歴3ターンのあとでも指示が長すぎると create が落ちる（実測320〜350字）。
+    expect(roomAsk('りんく').length).toBeLessThanOrEqual(100);
+    expect(roomAsk('たぬ姉', { pickup: '守' }).length).toBeLessThanOrEqual(120);
+  });
+
   it('pickup があれば触れるよう頼む', () => {
     expect(roomAsk('たぬ姉', { pickup: '守' })).toContain('「守」に触れる');
     expect(roomAsk('たぬ姉')).not.toContain('に触れる');
+  });
+});
+
+describe('roomForcesOneSentence — 場だけ1文。1対1は切らない', () => {
+  it('場があれば true、無ければ false', () => {
+    expect(roomForcesOneSentence({ digest: '窓' })).toBe(true);
+    expect(roomForcesOneSentence(false)).toBe(false);
+    expect(roomForcesOneSentence(null)).toBe(false);
+    expect(roomForcesOneSentence(undefined)).toBe(false);
   });
 });
 
