@@ -1,0 +1,17 @@
+/src/*.js
+  Content-Type: text/javascript; charset=utf-8
+
+/assets/*
+  Cache-Control: public, max-age=86400
+
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=()
+
+/
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-TXJINw1NMX2k9WQHi41Z5qcW7+usxUXxR6DYIKtVBCs='; style-src 'self' 'sha256-/1oNgowAvlZz69xmZfqwzjaBezCtZL3ljVz+41tQPHw=' 'sha256-ivYEe3eWOWwkaTCzYNHxzaVbbHyyclcLGoXIRx0hh8Y='; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
