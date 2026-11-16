@@ -6,6 +6,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "build:pages": "node -e \"const fs=require('fs'),path=require('path');const skip=new Set(['.agent','.claude','.git','.github','.gitignore','.mcp.json','.vercel','_docs','api','dist','functions','node_modules','package-lock.json','package.json','qa','README.md','ROADMAP.md','DEPLOY.md','HANDOFF-START-HERE.md','scripts','test','tests','vercel.json','vitest.config.js','wrangler.toml']);fs.rmSync('dist',{recursive:true,force:true});fs.mkdirSync('dist',{recursive:true});for(const e of fs.readdirSync('.'))if(!skip.has(e))fs.cpSync(e,path.join('dist',e),{recursive:true});\"",
     "test": "vitest run",
     "check:inline-script-syntax": "node ../web-ios-android/templates/diagnostics/check-inline-script-syntax.mjs .",
     "check:inline-script-syntax:selftest": "node ../web-ios-android/templates/diagnostics/check-inline-script-syntax.mjs --selftest",
