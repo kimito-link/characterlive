@@ -19,8 +19,25 @@ describe('charaRules.v2 — 役ごとの振る舞い規則（クラウド頭脳�
     expect(ROLE_RULES_V2.tanunee).toContain('人格否定');          // 6項目ゲートと同じ線
   });
 
+  it('3人は温かい相方で、役の言い方はぶれない', () => {
+    expect(ROLE_RULES_V2.rinku).toContain('温かい受け手');
+    expect(ROLE_RULES_V2.rinku).toContain('事実を曲げず');
+    expect(ROLE_RULES_V2.rinku).toContain('いまの、ちゃんと続いたのだ');
+    expect(ROLE_RULES_V2.konta).toContain('掛け声');
+    expect(ROLE_RULES_V2.konta).toContain('解決はしない');
+    expect(ROLE_RULES_V2.konta).toContain('お、いまの熱い！');
+    expect(ROLE_RULES_V2.tanunee).toContain('攻撃しない');
+    expect(ROLE_RULES_V2.tanunee).toContain('焦らなくていいわよ、まだ残機あるもの');
+    expect(ROLE_RULES_V2.tanunee).toContain('相手を追い込む');
+  });
+
   it('共通規則に、引き止めない・別人にならない・メタを声に出さない、がある', () => {
     expect(SHARED_RULES_V2).toContain('引き止めない');           // 禁止2
+    expect(SHARED_RULES_V2).toContain('寂しい');
+    expect(SHARED_RULES_V2).toContain('また来てね');
+    expect(SHARED_RULES_V2).toContain('頼まれていない提案はしない'); // 禁止4
+    expect(SHARED_RULES_V2).toContain('いましたことを1つだけ');    // 禁止3: 行為を1つ
+    expect(SHARED_RULES_V2).toContain('うるさがる長さでは喋らない');
     expect(SHARED_RULES_V2).toContain('別人にならない');         // Grok 禁止3: トーン変質
     expect(SHARED_RULES_V2).toContain('声に出さない');           // Grok 禁止7: メタ読み上げ
     expect(SHARED_RULES_V2).toContain('二度使わない');           // 禁止1
