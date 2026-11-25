@@ -672,20 +672,60 @@
         }
         return ' &nbsp; <span class="dot ng"></span>声: VOICEVOX 未起動（文字だけ）';
       }
+      /* ★VOICEVOX を「後から」起動しても声がつくようにする（2026-11-25・実害）
+           開いた瞬間の1回だけ確認していたので、ページを先に開いて VOICEVOX を後で起動すると
+           （または起動直後で /version が 1.5 秒以内に返らないと）ずっと無音のままだった。
+           届かない間は数秒おきに確かめ直し、つながったらその場で声を有効にする。 */
+      let lastAi = { ok: false, reason: '確認中…' };
+      let voiceWatchTimer = null;
+      function warmUpVoiceExtras() {
+        warmUpBackchannels(voices).then((r) => {
+          if (r.ok) console.info(`相槌を${r.made}個 作り置き（${r.ms}ms）`);
+        });
+      }
+      function onVoicevoxReady() {
+        if (voiceOk) return;
+        voiceOk = true;
+        if (voiceWatchTimer) { clearInterval(voiceWatchTimer); voiceWatchTimer = null; }
+        $('voice').checked = true;
+        $('status').innerHTML = aiStatusHtml(lastAi) + voiceStatusHtml(true);
+        buildVoicePicker();
+        warmUpVoiceExtras();
+        log('（声）', 'VOICEVOX につながりました。声を出します');
+      }
+      function watchVoicevox() {
+        if (voiceOk || voiceWatchTimer) return;
+        let busy = false;
+        voiceWatchTimer = setInterval(async () => {
+          if (busy || voiceOk) return;
+          busy = true;
+          try { if (await isVoicevoxAlive({ timeoutMs: 3000 })) onVoicevoxReady(); }
+          finally { busy = false; }
+        }, 5000);
+      }
+      // ★「声を出す」を入れ直したときも、その場で確かめる（待たせない）
+      $('voice').addEventListener('change', async () => {
+        if (!$('voice').checked || voiceOk) return;
+        if (await isVoicevoxAlive({ timeoutMs: 3000 })) onVoicevoxReady();
+        else watchVoicevox();
+      });
       $('brain').addEventListener('change', async () => {
         const chosen = setBrain($('brain').value);
         try { localStorage.setItem(BRAIN_KEY, chosen); } catch { /* no-op */ }
         $('status').innerHTML = aiStatusHtml({ ok: false, reason: '確認中…' }) + voiceStatusHtml(voiceOk);
         const ai = await probeAi();
+        lastAi = ai;
         $('status').innerHTML = aiStatusHtml(ai) + voiceStatusHtml(voiceOk);
         log('（頭脳）', `${BRAINS[chosen].label} に切り替え: ${ai.ok ? '使える' : (ai.reason || '使えない')}`);
       });
       (async () => {
         const [ai, vv] = await Promise.all([probeAi(), isVoicevoxAlive()]);
+        lastAi = ai;
         voiceOk = vv;
         $('status').innerHTML = aiStatusHtml(ai) + voiceStatusHtml(vv);
         if (!vv) $('voice').checked = false;
         if (vv) buildVoicePicker();
+        if (!vv) watchVoicevox();
         /* ★3人の頭を先に温める（2026-09-14）
            最初の返事だけ 10〜15 秒かかる（セッション作成が重い・実測）。開いた直後に作っておく。
            ★内蔵AIのときだけ。ログに所要時間を出す（重さを隠さない）。 */
@@ -694,11 +734,7 @@
            ★返事を作っている1.9秒（推論1300+合成600）が無音になり、
              そこで「会話が止まった」と感じていた。人間の会話に無音の1.9秒はない。
            ★作り置きしておけば0msで鳴る（その場で合成すると339msかかる・実測）。 */
-        if (vv) {
-          warmUpBackchannels(voices).then((r) => {
-            if (r.ok) console.info(`相槌を${r.made}個 作り置き（${r.ms}ms）`);
-          });
-        }
+        if (vv) warmUpVoiceExtras();
         // ★AIが準備中でも会話は成立する（決め打ちの返事＋声）。使えない、と誤解させない。
         if (!ai.ok && vv) {
           $('status').innerHTML += ' &nbsp;<span style="color:var(--muted)">※AIが準備中でも声は出ます</span>';
@@ -719,7 +755,8 @@
             if (r.ok) {
               btn.remove();
               const again = await probeAi();
-              $('status').innerHTML = aiStatusHtml(again) + voiceStatusHtml(true);
+              lastAi = again;
+              $('status').innerHTML = aiStatusHtml(again) + voiceStatusHtml(voiceOk);
               if (again.ok) warmUpAll();   // ★準備できたら、その場で3人の頭を温める
             } else {
               btn.disabled = false;
