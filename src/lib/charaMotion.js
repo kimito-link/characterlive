@@ -75,40 +75,63 @@ export function resolveStateMotion(input) {
 }
 
 /**
- * ★たまに半回転する（1回の会話で1〜2回）。
+ * ★たまに「ぴょこっ」と小さく跳ねて首をかしげる（1回の会話で1〜2回）。
  *
- *   ユーザー指示:「回転は"たまに"——1回の会話で1〜2回、ランダムで半回転してすぐ戻す」
- *   ★常時回転は禁止。ここは**発話ごとに抽選**し、当たった発話でだけ回す。
+ *   もとは半回転（180度）していたが、ユーザー報告:「ひっくり返るアクションは不自然」（2026-11-25）。
+ *   → 浮いている頭がひっくり返るのは不自然なので、**小さく跳ねて首をかしげ、ゆらゆら戻る**に置き換えた。
+ *   ★常時は禁止。ここは**発話ごとに抽選**し、当たった発話でだけ動かす。
  *
- * ★乱数を使わない: 同じ発話で毎フレーム抽選し直すと回ったり戻ったりする。
+ * ★乱数を使わない: 同じ発話で毎フレーム抽選し直すと動いたり戻ったりする。
  *   発話の開始時刻とキャラ名から決める（同じ発話中はずっと同じ判定）。
  *
  * @param {{ charaId:string, modeStartedAtMs:number, chance?:number }} input
- * @returns {boolean} この発話で回すか
+ * @returns {boolean} この発話で動かすか
  */
-export function shouldSpinThisTurn(input) {
+export function shouldAccentThisTurn(input) {
   const started = Number(input.modeStartedAtMs);
   if (!Number.isFinite(started)) return false;
   const chance = Number.isFinite(input.chance) ? Number(input.chance) : 0.18;
-  // 発話ごとに固定の 0..1（同じ発話中は変わらない）
+  // 発話ごとに固定の 0..1（同じ発話中は変わらない）。シードは旧実装と同じにして頻度を変えない。
   const u = hashUnit(`spin:${input.charaId}:${Math.floor(started)}`);
   return u < chance;
 }
 
+/** ★かしげる角度の上限（度）。ひっくり返らない＝顔が読める範囲にとどめる。 */
+export const ACCENT_TILT_MAX_DEG = 12;
+/** ★ぴょこっと跳ねる高さ（px）。 */
+export const ACCENT_HOP_PX = 9;
+
 /**
- * 回転の進み具合を返す（0..1 で1周ぶん）。
- * ★「半回転してすぐ戻す」= 0→180→0 を1回だけ。回りっぱなしにしない。
+ * 「ぴょこっ → 首かしげ → ゆらゆら戻る」を1回だけ返す。
+ *   - 前半で上に小さく跳ねる（下には沈まない）
+ *   - 首は片側にかしげ、減衰しながら反対側へ少し揺れて 0 に戻る
+ *   - 終わったら完全に 0（傾いたまま残らない）
  *
  * @param {number} elapsedMs 発話が始まってからの経過
- * @param {number} [durationMs]
- * @returns {number} 追加の回転角(度)
+ * @param {{ durationMs?:number, direction?:1|-1 }} [opts] direction=かしげる向き
+ * @returns {{ dy:number, tiltDeg:number }}
  */
-export function spinAngleDeg(elapsedMs, durationMs = 900) {
+export function accentMotion(elapsedMs, opts = {}) {
+  const durationMs = Number.isFinite(opts.durationMs) ? Number(opts.durationMs) : 1100;
+  const dir = opts.direction === -1 ? -1 : 1;
   const e = Number(elapsedMs) || 0;
-  if (e < 0 || e > durationMs) return 0;
-  const p = e / durationMs;              // 0..1
-  // 0→1→0 の山（sinの半周期）。180度まで行って戻る。
-  return Math.sin(p * Math.PI) * 180;
+  if (e <= 0 || e >= durationMs) return { dy: 0, tiltDeg: 0 };
+  const p = e / durationMs; // 0..1
+
+  // 跳ね: 前半35%で上がって戻る（sinの半周期）。
+  const hopP = p / 0.35;
+  const dy = hopP < 1 ? -Math.sin(hopP * Math.PI) * ACCENT_HOP_PX : 0;
+
+  // 首かしげ: 減衰する揺れ（1.5往復）。端で 0、途中で最大 ACCENT_TILT_MAX_DEG 未満。
+  const envelope = (1 - p) * (1 - p);
+  const tiltDeg = dir * Math.sin(p * Math.PI * 3) * ACCENT_TILT_MAX_DEG * envelope * 1.4;
+  const clamped = Math.max(-ACCENT_TILT_MAX_DEG, Math.min(ACCENT_TILT_MAX_DEG, tiltDeg));
+  return { dy, tiltDeg: clamped };
+}
+
+/** かしげる向きをキャラごとに固定する（3人が同じ向きにならないように）。 */
+export function accentDirection(charaId) {
+  return hashUnit(`accent-dir:${charaId}`) < 0.5 ? -1 : 1;
 }
 
 /** FNV-1a。決定論にするため（Math.random を使わない）。 */

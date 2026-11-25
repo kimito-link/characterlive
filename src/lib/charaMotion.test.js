@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  resolveStateMotion, shouldSpinThisTurn, spinAngleDeg,
+  resolveStateMotion, shouldAccentThisTurn, accentMotion, ACCENT_TILT_MAX_DEG,
   BOUNCE_MAX_PX, BREATH_AMOUNT
 } from './charaMotion.js';
 
@@ -69,11 +69,11 @@ describe('喋ってる = 跳ねる + 左右の揺れ', () => {
   });
 });
 
-describe('★回転は「たまに」（常時回転は禁止）', () => {
+describe('★ぴょこっと首かしげは「たまに」（常時は禁止）', () => {
   it('ほとんどの発話では回らない', () => {
     let hit = 0;
     for (let i = 0; i < 100; i += 1) {
-      if (shouldSpinThisTurn({ charaId: 'rinku', modeStartedAtMs: i * 5000 })) hit += 1;
+      if (shouldAccentThisTurn({ charaId: 'rinku', modeStartedAtMs: i * 5000 })) hit += 1;
     }
     // 1回の会話で1〜2回 = 2割以下
     expect(hit).toBeGreaterThan(3);
@@ -81,17 +81,29 @@ describe('★回転は「たまに」（常時回転は禁止）', () => {
   });
 
   it('★同じ発話中は判定が変わらない（回ったり戻ったりしない）', () => {
-    const a = shouldSpinThisTurn({ charaId: 'konta', modeStartedAtMs: 12345 });
+    const a = shouldAccentThisTurn({ charaId: 'konta', modeStartedAtMs: 12345 });
     for (let i = 0; i < 20; i += 1) {
-      expect(shouldSpinThisTurn({ charaId: 'konta', modeStartedAtMs: 12345 })).toBe(a);
+      expect(shouldAccentThisTurn({ charaId: 'konta', modeStartedAtMs: 12345 })).toBe(a);
     }
   });
 
-  it('★半回転して戻る（回りっぱなしにしない）', () => {
-    expect(spinAngleDeg(0)).toBe(0);
-    expect(spinAngleDeg(450)).toBeCloseTo(180, 0);
-    expect(spinAngleDeg(900)).toBeCloseTo(0, 0);
-    expect(spinAngleDeg(2000)).toBe(0); // 終わったら戻る
+  it('★ひっくり返らない（首かしげは小さい角度だけ）', () => {
+    for (let t = 0; t <= 1200; t += 10) {
+      for (const direction of [1, -1]) {
+        const m = accentMotion(t, { direction });
+        expect(Math.abs(m.tiltDeg)).toBeLessThanOrEqual(ACCENT_TILT_MAX_DEG);
+        expect(m.dy).toBeLessThanOrEqual(0); // 下には沈まない
+      }
+    }
+  });
+
+  it('★ちゃんと動いて、終わったら完全に戻る', () => {
+    const tilts = [];
+    for (let t = 0; t <= 1100; t += 10) tilts.push(accentMotion(t).tiltDeg);
+    expect(Math.max(...tilts.map(Math.abs))).toBeGreaterThan(5);
+    expect(accentMotion(0)).toEqual({ dy: 0, tiltDeg: 0 });
+    expect(accentMotion(1100)).toEqual({ dy: 0, tiltDeg: 0 });
+    expect(accentMotion(5000)).toEqual({ dy: 0, tiltDeg: 0 });
   });
 });
 

@@ -315,7 +315,7 @@ export function applyCharaLiveFrame(nodes, model, resolveUrl) {
     const emphasise = speaking ? 1.06 : 1;
     /* ★回転と拡縮は「絵」（stack）だけに掛け、吹き出しには掛けない（2026-09-14・実害）
          ユーザー報告:「下にひっくり返るとコメントが読めない」
-         ★喋っている最中に半回転（spin）する動きがあり、要素ごと回すと吹き出しも逆さになる。
+         ★喋っている最中に首をかしげる動きがあり（以前は半回転していた）、要素ごと回すと吹き出しも傾く。
          → 位置（translate）は要素に、姿勢（rotate/scale）は絵にだけ。吹き出しは常に正立のまま。
          ★1つの要素に transform を2か所から書かない原則はそのまま（要素と絵で1本ずつ）。 */
     const move = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;

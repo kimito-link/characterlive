@@ -28,7 +28,7 @@
  */
 
 import { charaPartPaths } from './charaParts.js';
-import { resolveStateMotion, shouldSpinThisTurn, spinAngleDeg } from './charaMotion.js';
+import { resolveStateMotion, shouldAccentThisTurn, accentMotion, accentDirection } from './charaMotion.js';
 
 /**
  * @typedef {'rinku'|'konta'|'tanunee'} CharaId
@@ -396,18 +396,18 @@ export function resolveCharaLiveLook(input) {
     timeMs, state: motionState, charaId, reducedMotion
   });
 
-  // ★たまに半回転(1回の会話で1〜2回)。発話ごとに抽選し、当たった発話でだけ回す。
-  //   常時回転は禁止。抽選は決定論なので、同じ発話中に回ったり戻ったりしない。
-  let spinDeg = 0;
+  // ★たまに「ぴょこっ」と跳ねて首をかしげる(1回の会話で1〜2回)。発話ごとに抽選。
+  //   もとは半回転(180度)だったが「ひっくり返るのは不自然」とユーザー報告(2026-11-25)で置き換え。
+  let accent = { dy: 0, tiltDeg: 0 };
   if (motionState === 'speaking' && !reducedMotion && Number.isFinite(startedAt)
-      && shouldSpinThisTurn({ charaId, modeStartedAtMs: startedAt })) {
-    spinDeg = spinAngleDeg(elapsed);
+      && shouldAccentThisTurn({ charaId, modeStartedAtMs: startedAt })) {
+    accent = accentMotion(elapsed, { direction: accentDirection(charaId) });
   }
 
   const float = {
     x: baseFloat.x,
-    y: baseFloat.y + motion.dy,
-    rotateDeg: baseFloat.rotateDeg + motion.dTiltDeg + spinDeg,
+    y: baseFloat.y + motion.dy + accent.dy,
+    rotateDeg: baseFloat.rotateDeg + motion.dTiltDeg + accent.tiltDeg,
     scale: baseFloat.scale * motion.scaleMul
   };
 
