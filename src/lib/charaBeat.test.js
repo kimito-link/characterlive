@@ -3,7 +3,10 @@
  * ★このファイルの主役は最後の「録画2相当」。fire回数を固定するのがこの部品の存在証明。
  */
 import { describe, it, expect } from 'vitest';
-import { resolveBeat, isStaleBeat, ROOM_LULL_MS, ROOM_MIN_CHARS, ROOM_MIN_GAP_MS } from './charaBeat.js';
+import {
+  resolveBeat, isStaleBeat, ROOM_LULL_MS, ROOM_MIN_CHARS, ROOM_MIN_GAP_MS,
+  ROOM_LONG_LULL_MS, ROOM_LONG_LULL_MIN_CHARS
+} from './charaBeat.js';
 import { makeTranscript, appendFinal, windowText, charsSince, lastHeardAt } from './charaTranscript.js';
 
 describe('resolveBeat — いつ喋るか', () => {
@@ -38,6 +41,22 @@ describe('resolveBeat — いつ喋るか', () => {
   it('間が来なくても十分溜まったら割り込む', () => {
     const r = resolveBeat({ nowMs: 20000, lastHeardAt: 19900, charsSinceLastBeat: 120, lastCharaAt: 1000 });
     expect(r).toEqual({ fire: true, reason: 'force' });
+  });
+
+  it('★1人で1文話して長く黙ったら、40字未満でも返す（2026-11-25 実マイクで無反応だった）', () => {
+    // 「なくなってしまいましたですね」= 14字
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 20000 - ROOM_LONG_LULL_MS, charsSinceLastBeat: 14, lastCharaAt: null });
+    expect(r).toEqual({ fire: true, reason: 'longLull' });
+  });
+
+  it('長い間でも、短すぎる断片だけなら黙る', () => {
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 20000 - ROOM_LONG_LULL_MS, charsSinceLastBeat: ROOM_LONG_LULL_MIN_CHARS - 1, lastCharaAt: null });
+    expect(r.reason).toBe('thin');
+  });
+
+  it('短い間（息継ぎ）では、少ない字数で返さない', () => {
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 20000 - ROOM_LONG_LULL_MS + 500, charsSinceLastBeat: 14, lastCharaAt: null });
+    expect(r.reason).toBe('thin');
   });
 
   it('まだ何も聞こえていなければ黙る', () => {

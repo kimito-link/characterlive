@@ -38,6 +38,19 @@
 export const ROOM_LULL_MS = 1800;
 /** 前回の拍からこれ未満しか進んでいなければ、間が来ても喋らない。 */
 export const ROOM_MIN_CHARS = 40;
+/**
+ * ★長い間（2026-11-25・初の実マイク試験で実害）
+ *   ユーザー報告「反応ないです」。1人で「なくなってしまいましたですね」(14字) と話して待っても
+ *   40字に届かず、ずっと thin のまま黙っていた（ログにも何も出なかった）。
+ *   ROOM_MIN_CHARS=40 は「1.5秒に1回誰かが喋る」Xスペースの実測で決めた値で、
+ *   1人で話して返事を待つ場面では届かない。
+ *   → 場がこれだけ長く黙ったら、少ない字数でも一言返す。
+ *   ★Xスペースの発話間隔は 90%で2025ms（実測）。4秒の沈黙はまれなので、
+ *     多人数の場の発火回数はほぼ変わらない。
+ */
+export const ROOM_LONG_LULL_MS = 4000;
+/** 長い間のときの最小字数。★「うん」等の相槌は耳の段階で捨てている。 */
+export const ROOM_LONG_LULL_MIN_CHARS = 8;
 /** 間が来なくても、これだけ話が進んだら喋る。 */
 export const ROOM_FORCE_CHARS = 90;
 /** 上と併用。前回の発話からこれ以上あいていること。 */
@@ -56,7 +69,7 @@ export const ROOM_STALE_MS = 5_000;
  *   lastCharaAt:number|null,      前回キャラが喋った時刻
  *   addressed?:boolean            名前を呼ばれたか
  * }} input
- * @returns {{ fire:boolean, reason:'addressed'|'lull'|'force'|'gap'|'thin'|'talking' }}
+ * @returns {{ fire:boolean, reason:'addressed'|'lull'|'longLull'|'force'|'gap'|'thin'|'talking' }}
  */
 export function resolveBeat(input) {
   const nowMs = Number(input?.nowMs);
@@ -81,8 +94,12 @@ export function resolveBeat(input) {
 
   // ★間が来た。ただし話が薄いなら見送る（「じゃないですか」だけで喋らない）
   if (silentMs >= ROOM_LULL_MS) {
-    if (chars < ROOM_MIN_CHARS) return { fire: false, reason: 'thin' };
-    return { fire: true, reason: 'lull' };
+    if (chars >= ROOM_MIN_CHARS) return { fire: true, reason: 'lull' };
+    // ★長く黙ったなら、少ない字数でも返す（1人で話して待っている場面）
+    if (silentMs >= ROOM_LONG_LULL_MS && chars >= ROOM_LONG_LULL_MIN_CHARS) {
+      return { fire: true, reason: 'longLull' };
+    }
+    return { fire: false, reason: 'thin' };
   }
 
   // ★間が来ない場（喋り続けている）。溜まったら割り込む
