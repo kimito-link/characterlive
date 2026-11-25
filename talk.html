@@ -1063,7 +1063,10 @@
                超えると create が失敗して決め打ちに落ち、画面上は正常に見える（潜伏型）。 */
           log('（拍）', `${beat.reason} 窓${digest.length}字 入力${res.userChars ?? '?'}字 推論${res.ms}ms`
             + (stale ? ' 古いので捨てた' : '')
-            + (res.fallback ? ` 決め打ちに落ちた（${res.reason || ''}）` : ''));
+            + (res.fallback ? ` 決め打ちに落ちた（${res.reason || ''}）` : '')
+            /* ★何を聞いて返したかを見えるようにする（2026-11-25・「かえってきません」）
+               返事が話とずれていたとき、耳の問題か頭脳の問題かを切り分けるため末尾だけ出す。 */
+            + ` 聞いた話:「…${digest.slice(-30)}」`);
           /* ★場では決め打ち台詞を言わない。1対1なら「黙らない」が正しいが、
              場に向かって毎拍「ボク見てたよ」を言うのは雑音になる。 */
           if (!res.ok || stale || res.fallback) return;
@@ -1094,8 +1097,11 @@
           setState('speaking', `${persona.displayName}が話しています`);
           const voice = { ...persona.voice, styleId: voices[who] };
           const parts = splitSentences(text);
+          const t0 = performance.now();
           const wav = await synthesize(parts[0], voice);
+          if (!wav) log('（声）', `${persona.displayName}の声を作れませんでした（VOICEVOXが応答しません）。文字だけ出します`);
           if (wav) {
+            log('（声）', `${persona.displayName}の声を鳴らします（合成${Math.round(performance.now() - t0)}ms）`);
             playing?.stop();
             live.onStreamerAddressed({ prompt: promptText, answer: text, durationMs: 60000, charaId: who });
             ptt?.mute();
@@ -1109,6 +1115,8 @@
             return;
           }
         }
+        if (!$('voice').checked) log('（声）', '「声を出す」が外れているので文字だけ出します');
+        else if (!voiceOk) log('（声）', 'VOICEVOXにつながっていないので文字だけ出します');
         live.onStreamerAddressed({ prompt: promptText, answer: text, durationMs: 4000, charaId: who });
         lastCharaAt = Date.now();
       }
