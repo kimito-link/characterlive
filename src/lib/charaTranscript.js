@@ -145,6 +145,13 @@ export function charsSince(state, tMs) {
   return (state.items || []).reduce((n, it) => (it.tMs > from ? n + it.text.length : n), 0);
 }
 
+/** ある時刻より後に聞こえた発話の数。★会話か多人数の場かを見分けるために使う。 */
+export function countSince(state, tMs) {
+  const from = Number(tMs);
+  if (!Number.isFinite(from)) return 0;
+  return (state.items || []).reduce((n, it) => (it.tMs > from ? n + 1 : n), 0);
+}
+
 /** 最後に何か聞こえた時刻。無ければ null。 */
 export function lastHeardAt(state) {
   const items = state.items || [];

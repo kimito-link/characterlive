@@ -308,10 +308,10 @@
       /* ★「場を聞く」の3部品（2026-09-08・_docs/ROOM-LISTENING-DESIGN.md）
            耳(charaTranscript) → 拍(charaBeat) → 荷物(charaDigest) → think({ room }) */
       import {
-        makeTranscript, appendFinal, markBlackout, windowText, charsSince, lastHeardAt
+        makeTranscript, appendFinal, markBlackout, windowText, charsSince, lastHeardAt, countSince
       } from './src/lib/charaTranscript.js';
       import {
-        resolveBeat, isStaleBeat, ROOM_LONG_LULL_MS, ROOM_LONG_LULL_MIN_CHARS
+        resolveBeat, isStaleBeat, ROOM_LONG_LULL_MS, ROOM_CONVO_WINDOW_MS
       } from './src/lib/charaBeat.js';
       import { buildRoomDigest } from './src/lib/charaDigest.js';
       /* ★前回の話を1つだけ拾う記憶（2026-09-14・採用5）。端末内（localStorage）だけ。 */
@@ -1014,7 +1014,9 @@
           nowMs: now,
           lastHeardAt: lastHeardAt(transcript),
           charsSinceLastBeat: charsSince(transcript, lastBeatAt),
-          lastCharaAt
+          lastCharaAt,
+          // ★発話がまばらなら「会話」として、言い終わったらすぐ返す（Grokと同じ動き）
+          recentUtts: countSince(transcript, now - ROOM_CONVO_WINDOW_MS)
         });
         if (beat.fire) { roomThinLogged = null; speakRoom(beat, now); return; }
         /* ★黙っている理由を1回だけログに出す（2026-11-25・実害）
@@ -1026,7 +1028,7 @@
             && now - heardAt >= ROOM_LONG_LULL_MS) {
           roomThinLogged = heardAt;
           const n = charsSince(transcript, lastBeatAt);
-          if (n > 0) log('（拍）', `話が短いので待っています（聞こえた${n}字。${ROOM_LONG_LULL_MIN_CHARS}字以上話して${ROOM_LONG_LULL_MS / 1000}秒黙ると一言返します）`);
+          if (n > 0) log('（拍）', `場が賑やかなので、話が溜まるのを待っています（聞こえた${n}字）`);
         }
       }
       /** thin のログを出した「最後に聞こえた時刻」。同じ間で何度も書かない */
@@ -1063,7 +1065,10 @@
                超えると create が失敗して決め打ちに落ち、画面上は正常に見える（潜伏型）。 */
           log('（拍）', `${beat.reason} 窓${digest.length}字 入力${res.userChars ?? '?'}字 推論${res.ms}ms`
             + (stale ? ' 古いので捨てた' : '')
-            + (res.fallback ? ` 決め打ちに落ちた（${res.reason || ''}）` : ''));
+            + (res.fallback ? ` 決め打ちに落ちた（${res.reason || ''}）` : '')
+            /* ★何を聞いて返したかを見えるようにする（2026-11-25・「かえってきません」）
+               返事が話とずれていたとき、耳の問題か頭脳の問題かを切り分けるため末尾だけ出す。 */
+            + ` 聞いた話:「…${digest.slice(-30)}」`);
           /* ★場では決め打ち台詞を言わない。1対1なら「黙らない」が正しいが、
              場に向かって毎拍「ボク見てたよ」を言うのは雑音になる。 */
           if (!res.ok || stale || res.fallback) return;
@@ -1094,8 +1099,11 @@
           setState('speaking', `${persona.displayName}が話しています`);
           const voice = { ...persona.voice, styleId: voices[who] };
           const parts = splitSentences(text);
+          const t0 = performance.now();
           const wav = await synthesize(parts[0], voice);
+          if (!wav) log('（声）', `${persona.displayName}の声を作れませんでした（VOICEVOXが応答しません）。文字だけ出します`);
           if (wav) {
+            log('（声）', `${persona.displayName}の声を鳴らします（合成${Math.round(performance.now() - t0)}ms）`);
             playing?.stop();
             live.onStreamerAddressed({ prompt: promptText, answer: text, durationMs: 60000, charaId: who });
             ptt?.mute();
@@ -1109,6 +1117,8 @@
             return;
           }
         }
+        if (!$('voice').checked) log('（声）', '「声を出す」が外れているので文字だけ出します');
+        else if (!voiceOk) log('（声）', 'VOICEVOXにつながっていないので文字だけ出します');
         live.onStreamerAddressed({ prompt: promptText, answer: text, durationMs: 4000, charaId: who });
         lastCharaAt = Date.now();
       }

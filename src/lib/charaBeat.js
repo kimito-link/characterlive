@@ -51,6 +51,23 @@ export const ROOM_MIN_CHARS = 40;
 export const ROOM_LONG_LULL_MS = 4000;
 /** 長い間のときの最小字数。★「うん」等の相槌は耳の段階で捨てている。 */
 export const ROOM_LONG_LULL_MIN_CHARS = 8;
+
+/**
+ * ★会話の場（2026-11-25・ユーザー要望「grokとおなじうごきにして」）
+ *   「8文字以上話して4秒黙る」のような決まりを、普通の人は考えない。
+ *   Grok は言い終わったらすぐ返す。字数の決まりも無い。
+ *   → 直近の発話がまばら（1人で話している／2人で話している）なら「会話」とみなし、
+ *     言い終わって少し間があいたら、短い一言にもすぐ返す。
+ *   ★Xスペースのように1.5秒に1回誰かが喋る場（20秒で約13発話・実測）は従来の拍のまま。
+ *     会話か場かは「直近 ROOM_CONVO_WINDOW_MS の発話数」だけで決める（話者推定はしない）。
+ */
+export const ROOM_CONVO_WINDOW_MS = 20_000;
+/** この発話数以下なら会話とみなす。 */
+export const ROOM_CONVO_MAX_UTTS = 5;
+/** 会話のとき、言い終わってからこれだけ黙ったら返す。★認識器の確定にも0.5〜1秒かかるので短め。 */
+export const ROOM_CONVO_LULL_MS = 900;
+/** 会話のとき、キャラが喋り終えてから次に返せるまでの最短。★再生直後の残響・UNMUTE(700ms)より長く。 */
+export const ROOM_CONVO_GAP_MS = 1_500;
 /** 間が来なくても、これだけ話が進んだら喋る。 */
 export const ROOM_FORCE_CHARS = 90;
 /** 上と併用。前回の発話からこれ以上あいていること。 */
@@ -68,8 +85,9 @@ export const ROOM_STALE_MS = 5_000;
  *   charsSinceLastBeat:number,    前回の拍から聞こえた文字数
  *   lastCharaAt:number|null,      前回キャラが喋った時刻
  *   addressed?:boolean            名前を呼ばれたか
+ *   recentUtts?:number            直近 ROOM_CONVO_WINDOW_MS に聞こえた発話数（無ければ場として扱う）
  * }} input
- * @returns {{ fire:boolean, reason:'addressed'|'lull'|'longLull'|'force'|'gap'|'thin'|'talking' }}
+ * @returns {{ fire:boolean, reason:'addressed'|'convo'|'lull'|'longLull'|'force'|'gap'|'thin'|'talking' }}
  */
 export function resolveBeat(input) {
   const nowMs = Number(input?.nowMs);
@@ -84,6 +102,15 @@ export function resolveBeat(input) {
 
   // まだ何も聞こえていない
   if (lastHeard === null) return { fire: false, reason: 'thin' };
+
+  // ★会話（発話がまばら）: 言い終わったらすぐ返す。字数の決まりは無い
+  const recent = Number(input?.recentUtts);
+  if (Number.isFinite(recent) && recent <= ROOM_CONVO_MAX_UTTS) {
+    if (lastChara !== null && nowMs - lastChara < ROOM_CONVO_GAP_MS) return { fire: false, reason: 'gap' };
+    if (chars <= 0) return { fire: false, reason: 'thin' };
+    if (nowMs - lastHeard >= ROOM_CONVO_LULL_MS) return { fire: true, reason: 'convo' };
+    return { fire: false, reason: 'talking' };
+  }
 
   // ★直前に自分たちが喋ったばかりなら黙る
   if (lastChara !== null && nowMs - lastChara < ROOM_MIN_GAP_MS) {

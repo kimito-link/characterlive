@@ -5,9 +5,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveBeat, isStaleBeat, ROOM_LULL_MS, ROOM_MIN_CHARS, ROOM_MIN_GAP_MS,
-  ROOM_LONG_LULL_MS, ROOM_LONG_LULL_MIN_CHARS
+  ROOM_LONG_LULL_MS, ROOM_LONG_LULL_MIN_CHARS,
+  ROOM_CONVO_WINDOW_MS, ROOM_CONVO_MAX_UTTS, ROOM_CONVO_LULL_MS, ROOM_CONVO_GAP_MS
 } from './charaBeat.js';
-import { makeTranscript, appendFinal, windowText, charsSince, lastHeardAt } from './charaTranscript.js';
+import { makeTranscript, appendFinal, windowText, charsSince, lastHeardAt, countSince } from './charaTranscript.js';
 
 describe('resolveBeat — いつ喋るか', () => {
   it('名前を呼ばれたら最短間隔を無視して即答する', () => {
@@ -57,6 +58,50 @@ describe('resolveBeat — いつ喋るか', () => {
   it('短い間（息継ぎ）では、少ない字数で返さない', () => {
     const r = resolveBeat({ nowMs: 20000, lastHeardAt: 20000 - ROOM_LONG_LULL_MS + 500, charsSinceLastBeat: 14, lastCharaAt: null });
     expect(r.reason).toBe('thin');
+  });
+
+  it('★会話（発話がまばら）なら、短い一言でも言い終わったらすぐ返す（Grokと同じ）', () => {
+    // 「聞こえるかな」= 6字。字数の決まりで黙らない
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 20000 - ROOM_CONVO_LULL_MS, charsSinceLastBeat: 6, lastCharaAt: null, recentUtts: 1 });
+    expect(r).toEqual({ fire: true, reason: 'convo' });
+  });
+
+  it('会話でも、言っている最中（間が来ていない）は割り込まない', () => {
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 20000 - ROOM_CONVO_LULL_MS + 300, charsSinceLastBeat: 30, lastCharaAt: null, recentUtts: 2 });
+    expect(r.reason).toBe('talking');
+  });
+
+  it('会話でも、キャラが喋り終えた直後は返さない（残響を拾わない）', () => {
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 18000, charsSinceLastBeat: 10, lastCharaAt: 20000 - ROOM_CONVO_GAP_MS + 200, recentUtts: 1 });
+    expect(r.reason).toBe('gap');
+  });
+
+  it('会話でも、前の返事から新しく何も聞いていなければ返さない', () => {
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 10000, charsSinceLastBeat: 0, lastCharaAt: null, recentUtts: 1 });
+    expect(r.fire).toBe(false);
+  });
+
+  it('発話が多い場（多人数）では、会話の速さで返さない', () => {
+    const r = resolveBeat({ nowMs: 20000, lastHeardAt: 20000 - ROOM_CONVO_LULL_MS, charsSinceLastBeat: 6, lastCharaAt: null, recentUtts: ROOM_CONVO_MAX_UTTS + 1 });
+    expect(r.fire).toBe(false);
+  });
+
+  it('★1人で4回やりとりしたら4回とも返す', () => {
+    let state = makeTranscript();
+    let lastBeatAt = 0;
+    let lastCharaAt = null;
+    let fires = 0;
+    const said = [{ t: 1000, text: '聞こえるかな' }, { t: 9000, text: 'おはよう' }, { t: 17000, text: '今日は寒いね' }, { t: 25000, text: '配信しよう' }];
+    let si = 0;
+    for (let now = 0; now <= 32000; now += 500) {
+      while (si < said.length && said[si].t <= now) { state = appendFinal(state, { text: said[si].text, tMs: said[si].t }); si += 1; }
+      const r = resolveBeat({
+        nowMs: now, lastHeardAt: lastHeardAt(state), charsSinceLastBeat: charsSince(state, lastBeatAt),
+        lastCharaAt, recentUtts: countSince(state, now - ROOM_CONVO_WINDOW_MS)
+      });
+      if (r.fire) { fires += 1; lastBeatAt = now; lastCharaAt = now + 3000; }
+    }
+    expect(fires).toBe(4);
   });
 
   it('まだ何も聞こえていなければ黙る', () => {
@@ -118,10 +163,11 @@ describe('★録画2相当の負荷（213発話 / 321秒）', () => {
         nowMs: now,
         lastHeardAt: lastHeardAt(state),
         charsSinceLastBeat: charsSince(state, lastBeatAt),
-        lastCharaAt
+        lastCharaAt,
+        recentUtts: countSince(state, now - ROOM_CONVO_WINDOW_MS)
       });
       if (r.fire) {
-        fires.push({ reason: r.reason, win: windowText(state, { nowMs: now }).length });
+        fires.push({ reason: r.reason, t: now, win: windowText(state, { nowMs: now }).length });
         lastBeatAt = now;
         lastCharaAt = now + 2000;   // 1文の合成にかかる時間
       }
@@ -131,13 +177,23 @@ describe('★録画2相当の負荷（213発話 / 321秒）', () => {
 
   const fires = runTicker(makeUtterances());
 
-  it('★213回の断片に対して、喋るのは15〜25回に収まる', () => {
-    expect(fires.length).toBeGreaterThanOrEqual(15);
-    expect(fires.length).toBeLessThanOrEqual(25);
+  /* ★2026-11-25 会話モードを足した。場が始まった直後（直近20秒の発話がまだ少ない間）は
+     会話とみなして返すので、冒頭に2回まで会話の返事が出る。場が賑わったら従来の拍に戻る。 */
+  const busyFires = fires.filter((f) => f.reason !== 'convo');
+
+  it('★会話の速さで返すのは、場が賑わう前の冒頭だけ（2回まで）', () => {
+    const convo = fires.filter((f) => f.reason === 'convo');
+    expect(convo.length).toBeLessThanOrEqual(2);
+    expect(convo.every((f) => f.t < ROOM_CONVO_WINDOW_MS)).toBe(true);
   });
 
-  it('★どの発話も40字以上の窓を持っている（断片だけで喋らない）', () => {
-    const thin = fires.filter((f) => f.win < 40);
+  it('★213回の断片に対して、賑わった場で喋るのは15〜25回に収まる', () => {
+    expect(busyFires.length).toBeGreaterThanOrEqual(15);
+    expect(busyFires.length).toBeLessThanOrEqual(25);
+  });
+
+  it('★賑わった場では、どの発話も40字以上の窓を持っている（断片だけで喋らない）', () => {
+    const thin = busyFires.filter((f) => f.win < 40);
     expect(thin).toEqual([]);
   });
 
